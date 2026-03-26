@@ -82,7 +82,6 @@
 
             try {
                 if (typeof __firebase_config !== 'undefined') config = JSON.parse(__firebase_config);
-                // Verifica se estamos no ambiente do chat (onde apiKey é injetada)
                 if (typeof apiKey !== 'undefined' && apiKey !== "") {
                     gKey = apiKey;
                     isInternal = true;
@@ -106,7 +105,7 @@
             const [selectedLead, setSelectedLead] = useState(null);
             const [searchSector, setSearchSector] = useState('');
             const [error, setError] = useState(null);
-            const [aiBubble, setAiBubble] = useState({ show: false, text: "", type: 'info', action: null });
+            const [aiBubble, setAiBubble] = useState({ show: false, text: "", type: 'info' });
 
             const contacts = [
                 { name: 'Doco', phone: '5511989510868' },
@@ -154,34 +153,35 @@
             }, [user]);
 
             const cleanAIResponse = (text) => {
+                if (!text) return "";
                 return text.replace(/```json/g, "").replace(/```/g, "").trim();
             };
 
             const callGemini = async (prompt, search = false) => {
-                // Tenta primeiro o modelo preview se estiver no Canvas, senão usa o flash padrão
-                const models = isInternal 
-                    ? ["gemini-2.5-flash-preview-09-2025", "gemini-1.5-flash"] 
-                    : ["gemini-1.5-flash"];
+                // MODEL FIX: No Canvas usamos preview, no Vercel usamos 1.5-flash (padrão estável)
+                const modelId = isInternal ? "gemini-2.5-flash-preview-09-2025" : "gemini-1.5-flash";
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${gKey}`;
                 
-                for (const modelId of models) {
-                    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${gKey}`;
-                    const payload = {
-                        contents: [{ parts: [{ text: prompt }] }],
-                        generationConfig: { responseMimeType: "application/json" },
-                        ...(search && { tools: [{ "google_search": {} }] })
-                    };
+                const payload = {
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: { responseMimeType: "application/json" },
+                    ...(search && { tools: [{ "google_search": {} }] })
+                };
 
+                for (let i = 0; i < 3; i++) {
                     try {
-                        const res = await fetch(url, { method: 'POST', body: JSON.stringify(payload) });
-                        if (res.status === 404) continue; // Tenta o próximo modelo
-                        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                        
+                        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                        if (!res.ok) {
+                            const errInfo = await res.json();
+                            throw new Error(`HTTP ${res.status}: ${JSON.stringify(errInfo)}`);
+                        }
                         const data = await res.json();
                         const rawText = data.candidates[0].content.parts[0].text;
                         return JSON.parse(cleanAIResponse(rawText));
                     } catch (e) {
-                        console.error(`Erro com modelo ${modelId}:`, e);
-                        if (modelId === models[models.length - 1]) throw e;
+                        console.error(`Tentativa ${i+1} falhou:`, e);
+                        if (i === 2) throw e;
+                        await new Promise(r => setTimeout(r, 2000));
                     }
                 }
             };
@@ -189,17 +189,28 @@
             const startMining = async (forcedSector = null) => {
                 const target = forcedSector || searchSector;
                 if (!user || !target) return;
+                
                 setIsMining(true);
                 setAiBubble({ show: true, text: `Lumina rastreando empresas de ${target} no Google...`, type: 'info' });
+                
                 try {
                     const prompt = `Atue como prospecção B2B de elite no Brasil. Use Google Search e encontre 8 empresas REAIS de "${target}" com faturamento estimado acima de R$ 10M. Retorne um array JSON com: "empresa", "cnae", "faturamento", "status": "Novo", "score": (0-100). Responda em Português do Brasil.`;
                     const results = await callGemini(prompt, true);
-                    const ref = firebase.firestore().collection('artifacts').doc(aId).collection('public').doc('data').collection('leads');
-                    for (const l of results) await ref.add({ ...l, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
-                    setAiBubble({ show: true, text: `Sucesso! Adicionei ${results.length} leads de ${target} ao radar.`, type: 'success' });
+                    
+                    if (results && Array.isArray(results)) {
+                        const ref = firebase.firestore().collection('artifacts').doc(aId).collection('public').doc('data').collection('leads');
+                        for (const l of results) {
+                            await ref.add({ ...l, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+                        }
+                        setAiBubble({ show: true, text: `Sucesso! Adicionei ${results.length} leads de ${target} ao radar.`, type: 'success' });
+                    }
                 } catch (e) { 
+                    console.error(e);
                     setAiBubble({ show: true, text: "Erro ao minerar. Tente novamente em alguns segundos.", type: 'error' }); 
-                } finally { setIsMining(false); setSearchSector(''); }
+                } finally { 
+                    setIsMining(false); 
+                    setSearchSector(''); 
+                }
             };
 
             const validateLead = async (id, name) => {
@@ -208,7 +219,9 @@
                 try {
                     const prompt = `Analise a empresa "${name}" no Brasil via Google Search. Retorne JSON: "decisor" (nome CEO/CFO real), "cargo", "contato" (telefone), "email" (e-mail corporativo), "gancho" (abordagem estratégica Banco Safra), "score" (0-100). Responda em Português do Brasil.`;
                     const data = await callGemini(prompt, true);
-                    await firebase.firestore().collection('artifacts').doc(aId).collection('public').doc('data').collection('leads').doc(id).update({ ...data, status: 'Enriquecido' });
+                    if (data) {
+                        await firebase.firestore().collection('artifacts').doc(aId).collection('public').doc('data').collection('leads').doc(id).update({ ...data, status: 'Enriquecido' });
+                    }
                 } catch (e) { console.error(e); } finally { setIsProcessing(false); }
             };
 
@@ -242,7 +255,7 @@
                             <img src="https://imgur.com/W0gDq47.png" className="w-12 h-12 rounded-xl object-contain bg-white/5 p-1" alt="Logo" />
                             <div>
                                 <h1 className="text-xl font-bold text-white tracking-tight">Evolua<span className="text-indigo-400">Hunt</span></h1>
-                                <p className="text-[9px] text-slate-500 uppercase font-bold tracking-widest">Prospecção Digital</p>
+                                <p className="text-[9px] text-slate-500 uppercase font-bold tracking-widest">Digital Prospecting</p>
                             </div>
                         </div>
                         <nav className="space-y-1">
@@ -256,7 +269,7 @@
                         <div className="mt-auto bg-indigo-500/5 p-4 rounded-2xl border border-indigo-500/10">
                             <div className="flex items-center gap-2 mb-2">
                                 <div className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse"></div>
-                                <span className="text-[10px] uppercase font-bold text-indigo-400">Lumina Core Ativa</span>
+                                <span className="text-[10px] uppercase font-bold text-indigo-400">Lumina 2.5 Active</span>
                             </div>
                             <p className="text-[10px] text-slate-500 italic">Pronta para minerar o mercado.</p>
                         </div>
@@ -295,15 +308,15 @@
                                             <div className="flex flex-col xl:flex-row justify-between items-start gap-6">
                                                 <div className="flex-1 w-full">
                                                     <div className="flex items-center gap-3 mb-2">
-                                                        <h4 className="text-lg font-bold text-white">{l.empresa}</h4>
+                                                        <h4 className="text-lg font-bold text-white group-hover:text-indigo-400 transition-colors">{l.empresa}</h4>
                                                         <span className={`text-[9px] px-2 py-0.5 rounded border font-black uppercase ${l.status==='Enriquecido'?'border-indigo-500/30 text-indigo-400 bg-indigo-500/5':'border-white/10 text-slate-500'}`}>{l.status}</span>
                                                     </div>
                                                     <p className="text-[10px] text-slate-500 font-mono tracking-tighter uppercase mb-4">{l.cnae} • <span className="text-indigo-400 font-bold">{l.faturamento}</span></p>
                                                     
                                                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 p-4 bg-white/[0.02] rounded-2xl border border-white/5 text-sm">
                                                         <div>
-                                                            <p className="text-[9px] uppercase font-black opacity-60 tracking-widest mb-1">Decisor</p>
-                                                            <p className="font-bold text-slate-200">{l.decisor || "Pendente"}</p>
+                                                            <p className="text-[9px] uppercase font-black opacity-60 tracking-widest mb-1">Decisor & Contato</p>
+                                                            <p className="font-bold text-slate-200">{l.decisor || "Não validado"}</p>
                                                             {l.contato && <p className="text-indigo-400 text-[10px] mt-1 font-medium">{l.contato}</p>}
                                                             {l.email && <p className="text-slate-500 text-[10px] truncate">{l.email}</p>}
                                                         </div>
@@ -316,14 +329,10 @@
                                                                 </div>
                                                             </div>
                                                         </div>
-                                                        <div className="hidden md:block">
-                                                            <p className="text-[9px] uppercase font-black opacity-60 tracking-widest mb-1">Cargo</p>
-                                                            <p className="text-xs text-indigo-400/80 font-bold">{l.cargo || "N/A"}</p>
-                                                        </div>
                                                     </div>
 
                                                     {l.gancho && (
-                                                        <div className="mt-4 flex gap-3 bg-indigo-500/[0.03] p-4 rounded-2xl border border-indigo-500/10 italic text-xs text-slate-400 leading-relaxed">
+                                                        <div className="mt-4 flex gap-3 bg-indigo-500/[0.03] p-4 rounded-2xl border border-indigo-500/10 italic text-xs md:text-sm text-slate-400">
                                                             <i data-lucide="bot" className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5"></i>
                                                             "{l.gancho}"
                                                         </div>
@@ -331,7 +340,7 @@
                                                 </div>
                                                 <div className="flex flex-row xl:flex-col gap-2 w-full xl:w-40 mt-4 xl:mt-0">
                                                     {!l.decisor ? (
-                                                        <button onClick={()=>validate(l.id, l.empresa)} disabled={isProcessing} className="flex-1 bg-white/5 hover:bg-indigo-500 text-white p-3 rounded-xl flex items-center justify-center gap-2 font-bold text-xs border border-white/10 transition-all active:scale-95 disabled:opacity-50">
+                                                        <button onClick={()=>validateLead(l.id, l.empresa)} disabled={isProcessing} className="flex-1 bg-white/5 hover:bg-indigo-500 text-white p-3 rounded-xl flex items-center justify-center gap-2 font-bold text-xs border border-white/10 transition-all active:scale-95 disabled:opacity-50">
                                                             {isProcessing ? <i data-lucide="loader-2" className="w-4 h-4 animate-spin"></i> : <i data-lucide="shield-check" className="w-4 h-4"></i>}
                                                             Validar
                                                         </button>
@@ -341,7 +350,7 @@
                                                             Enviar
                                                         </button>
                                                     )}
-                                                    <button onClick={()=>firebase.firestore().collection('artifacts').doc(aId).collection('public').doc('data').collection('leads').doc(l.id).delete()} className="bg-red-600/5 hover:bg-red-600/20 text-red-500/50 p-3 rounded-xl transition-all">
+                                                    <button onClick={()=>deleteLead(l.id)} className="bg-red-600/5 hover:bg-red-600/20 text-red-500/50 p-3 rounded-xl transition-all">
                                                         <i data-lucide="trash-2" className="w-4 h-4"></i>
                                                     </button>
                                                 </div>
