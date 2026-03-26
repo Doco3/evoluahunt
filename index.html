@@ -1,312 +1,306 @@
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EvoluaHunt - Prospecção Inteligente</title>
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- React & Babel -->
-    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- Lucide Icons -->
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <!-- Firebase -->
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+import React, { useState } from 'react';
+import { Search, Send, Building, User, Phone, MapPin, DollarSign, Target, Zap, CheckCircle2, Mail } from 'lucide-react';
 
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+export default function EvoluaHunt() {
+  const [isSearching, setIsSearching] = useState(false);
+  const [leads, setLeads] = useState([]);
+  const [vendedor, setVendedor] = useState({ nome: '', empresa: '' });
+  const [filters, setFilters] = useState({
+    segmento: '',
+    cnae: '',
+    faturamento: '',
+    estado: ''
+  });
+
+  // Simulador de requisição para a API de dados (Econodata/ReceitaWS + IA)
+  const handleHunt = (e) => {
+    e.preventDefault();
+    setIsSearching(true);
+    setLeads([]);
+
+    // Simulando o tempo de processamento da IA e busca na API (3 segundos)
+    setTimeout(() => {
+      const mockLeads = [
+        {
+          id: 1,
+          empresa: 'TechNova Engenharia LTDA',
+          cnpj: '12.345.678/0001-90',
+          decisor: 'Carlos Eduardo Mendes',
+          cargo: 'Sócio-Diretor',
+          telefone: '(11) 98765-4321',
+          email: 'carlos.mendes@technova.com.br',
+          faturamento: 'R$ 5M - 10M/ano',
+          cidade: 'São Paulo - SP',
+          score: 98
+        },
+        {
+          id: 2,
+          empresa: 'Clínica Médica Viver Bem',
+          cnpj: '98.765.432/0001-10',
+          decisor: 'Dra. Amanda Silva',
+          cargo: 'Sócia-Administradora',
+          telefone: '(19) 99123-4567',
+          email: 'diretoria@clinicaviverbem.med.br',
+          faturamento: 'R$ 2M - 5M/ano',
+          cidade: 'Campinas - SP',
+          score: 95
+        },
+        {
+          id: 3,
+          empresa: 'Logística Avançada BR',
+          cnpj: '45.123.890/0001-55',
+          decisor: 'Roberto Carvalho',
+          cargo: 'CEO',
+          telefone: '(11) 97788-9900',
+          email: 'rcarvalho@logavancada.com.br',
+          faturamento: 'R$ 10M - 50M/ano',
+          cidade: 'Guarulhos - SP',
+          score: 89
+        },
+        {
+          id: 4,
+          empresa: 'AgroSul Implementos',
+          cnpj: '03.444.555/0001-22',
+          decisor: 'Fernanda Costa',
+          cargo: 'Diretora Comercial',
+          telefone: '(41) 98877-6655',
+          email: 'fernanda.costa@agrosul.ind.br',
+          faturamento: 'R$ 50M - 100M/ano',
+          cidade: 'Curitiba - PR',
+          score: 92
+        },
+        {
+          id: 5,
+          empresa: 'StartPay Soluções',
+          cnpj: '33.222.111/0001-99',
+          decisor: 'Lucas Moraes',
+          cargo: 'Fundador',
+          telefone: '(11) 96655-4433',
+          email: 'lucas@startpay.com.br',
+          faturamento: 'R$ 1M - 2M/ano',
+          cidade: 'Barueri - SP',
+          score: 85
+        },
+        {
+          id: 6,
+          empresa: 'Construtora Horizonte',
+          cnpj: '77.888.999/0001-44',
+          decisor: 'Ricardo Almeida',
+          cargo: 'Sócio-Proprietário',
+          telefone: '(31) 99988-7766',
+          email: 'ralmeida@horizonte.eng.br',
+          faturamento: 'R$ 20M - 50M/ano',
+          cidade: 'Belo Horizonte - MG',
+          score: 96
+        }
+      ];
+      setLeads(mockLeads);
+      setIsSearching(false);
+    }, 3000);
+  };
+
+  const handleWhatsApp = (lead) => {
+    // Puxa os dados dinâmicos digitados pelo usuário, ou usa um padrão se ele esquecer de preencher
+    const nomeVendedor = vendedor.nome || 'um especialista';
+    const nomeEmpresa = vendedor.empresa || 'nossa empresa';
+    
+    // Mensagem dinâmica sem o nome do Rafael fixo
+    const mensagem = `Olá ${lead.decisor}, tudo bem? Aqui é ${nomeVendedor}, da ${nomeEmpresa}. Vi que a ${lead.empresa} tem tido um crescimento sólido no setor. Gostaria de agendar 10 minutos para te apresentar nossas soluções.`;
+    
+    // Limpa a formatação visual do número para garantir que a API do zap abra certinho
+    const numeroLimpo = lead.telefone.replace(/\D/g, '');
+    const url = `https://wa.me/55${numeroLimpo}?text=${encodeURIComponent(mensagem)}`;
+    window.open(url, '_blank');
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-200 font-sans p-6">
+      <div className="max-w-7xl mx-auto space-y-6">
         
-        body { 
-            font-family: 'Plus Jakarta Sans', sans-serif; 
-            background-color: #080a0f; 
-            color: #cbd5e1;
-            margin: 0;
-        }
+        {/* Header */}
+        <header className="flex items-center justify-between pb-6 border-b border-slate-800">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-blue-500/10 rounded-xl">
+              <Target className="w-8 h-8 text-blue-400" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-white tracking-tight">Evolua<span className="text-blue-400">Hunt</span></h1>
+              <p className="text-sm text-slate-400">AI Lead Generation & Enrichment</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 px-4 py-2 bg-slate-900 rounded-lg border border-slate-800">
+            <Zap className="w-4 h-4 text-amber-400" />
+            <span className="text-sm font-medium">Status: IA Pronta</span>
+          </div>
+        </header>
 
-        .glass-panel { 
-            background: rgba(13, 17, 23, 0.8); 
-            backdrop-filter: blur(12px); 
-            border: 1px solid rgba(255, 255, 255, 0.05); 
-        }
+        {/* Search Panel */}
+        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl mb-6">
+          
+          {/* Sessão do Vendedor (NOVO) */}
+          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <User className="w-5 h-5 text-blue-400" />
+            Seus Dados (Para o Script de Vendas)
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 pb-6 border-b border-slate-800">
+            <input
+              type="text"
+              placeholder="Seu Nome (Ex: João, Maria...)"
+              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+              onChange={(e) => setVendedor({...vendedor, nome: e.target.value})}
+            />
+            <input
+              type="text"
+              placeholder="Sua Empresa (Ex: Evolua Digital)"
+              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+              onChange={(e) => setVendedor({...vendedor, empresa: e.target.value})}
+            />
+          </div>
 
-        #loader { 
-            position: fixed; inset: 0; 
-            display: flex; align-items: center; justify-content: center; 
-            background: #080a0f; z-index: 9999; 
-        }
+          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <Search className="w-5 h-5 text-blue-400" />
+            Parâmetros de Busca (CNAE / Segmento)
+          </h2>
+          
+          <form onSubmit={handleHunt} className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-slate-400 uppercase tracking-wider">Segmento Alvo</label>
+              <input 
+                type="text" 
+                placeholder="Ex: Clínicas, Engenharia..."
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                onChange={(e) => setFilters({...filters, segmento: e.target.value})}
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-slate-400 uppercase tracking-wider">CNAE Específico</label>
+              <input 
+                type="text" 
+                placeholder="Ex: 8630-5/03"
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                onChange={(e) => setFilters({...filters, cnae: e.target.value})}
+              />
+            </div>
 
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .spinner {
-            width: 40px; height: 40px; 
-            border: 3px solid #1e1b4b; border-top-color: #6366f1; 
-            border-radius: 50%; animation: spin 1s linear infinite;
-        }
-        
-        .tab-active { background: #4f46e5; color: white; font-weight: bold; box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.4); }
-    </style>
-</head>
-<body>
-    <div id="loader"><div class="spinner"></div></div>
-    <div id="root"></div>
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-slate-400 uppercase tracking-wider">Faturamento Mín.</label>
+              <select 
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                onChange={(e) => setFilters({...filters, faturamento: e.target.value})}
+              >
+                <option value="">Qualquer faturamento</option>
+                <option value="1M">Acima de R$ 1 Milhão/ano</option>
+                <option value="5M">Acima de R$ 5 Milhões/ano</option>
+                <option value="10M">Acima de R$ 10 Milhões/ano</option>
+              </select>
+            </div>
 
-    <script type="text/babel">
-        const { useState, useEffect } = React;
+            <div className="flex items-end">
+              <button 
+                type="submit"
+                disabled={isSearching}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg px-4 py-3 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSearching ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Minerando Dados...
+                  </>
+                ) : (
+                  <>
+                    <Target className="w-5 h-5" />
+                    Iniciar Hunt
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        </section>
 
-        // ==========================================================
-        // 🚀 CONFIGURAÇÃO PARA VERCEL (OBRIGATÓRIO) 🚀
-        // ==========================================================
-        const VERCEL_GEMINI_KEY = "AIzaSyDPzPjyijRbzFswEd9vrVub7tpUlJTrYEE"; 
-        const VERCEL_FIREBASE_CONFIG = {
-            apiKey: "AIzaSyCvyPlMgdZMO_vDLFDzxGqnFTlvgVRypnY",
-            authDomain: "evoluahunt.firebaseapp.com",
-            projectId: "evoluahunt",
-            storageBucket: "evoluahunt.firebasestorage.app",
-            messagingSenderId: "271300824744",
-            appId: "1:271300824744:web:4e96ef33a34f1823627c9d",
-            measurementId: "G-LGQ4B35WFB"
-        }; 
-        // ==========================================================
+        {/* Results Area */}
+        {isSearching && (
+          <div className="flex flex-col items-center justify-center py-12 space-y-4">
+            <div className="relative w-16 h-16">
+              <div className="absolute inset-0 border-4 border-slate-800 rounded-full"></div>
+              <div className="absolute inset-0 border-4 border-blue-500 rounded-full border-t-transparent animate-spin"></div>
+            </div>
+            <p className="text-slate-400 animate-pulse">A IA está varrendo os bancos de dados, cruzando CNAEs e validando telefones...</p>
+          </div>
+        )}
 
-        const getKeys = () => {
-            let config = null;
-            let gKey = VERCEL_GEMINI_KEY;
-            let aId = 'evolua-hunt-standalone';
-            try {
-                if (typeof __firebase_config !== 'undefined') config = JSON.parse(__firebase_config);
-                if (typeof apiKey !== 'undefined' && apiKey !== "") gKey = apiKey;
-                if (typeof __app_id !== 'undefined') aId = __app_id;
-            } catch (e) {}
-            return { config: config || VERCEL_FIREBASE_CONFIG, gKey, aId };
-        };
+        {!isSearching && leads.length > 0 && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-blue-400" />
+                Leads Encontrados ({leads.length})
+              </h2>
+              <span className="text-xs text-slate-400">Dados enriquecidos via IA</span>
+            </div>
 
-        const { config, gKey, aId } = getKeys();
-
-        const App = () => {
-            const [user, setUser] = useState(null);
-            const [leads, setLeads] = useState([]);
-            const [loading, setLoading] = useState(true);
-            const [activeTab, setActiveTab] = useState('discovery');
-            const [isMining, setIsMining] = useState(false);
-            const [isProcessing, setIsProcessing] = useState(false);
-            const [showSendModal, setShowSendModal] = useState(false);
-            const [selectedLead, setSelectedLead] = useState(null);
-            const [searchSector, setSearchSector] = useState('');
-            const [error, setError] = useState(null);
-            const [aiBubble, setAiBubble] = useState({ show: false, text: "", type: 'info' });
-
-            const contacts = [
-                { name: 'Doco', phone: '5511989510868' },
-                { name: 'Matheus', phone: '5511999999999' },
-                { name: 'Rafael (Safra)', phone: '5511988888888' }
-            ];
-
-            useEffect(() => {
-                const l = document.getElementById('loader');
-                if (l) l.style.display = 'none';
-                if (!config) { setError("Erro de configuração do Firebase!"); return; }
-                if (!firebase.apps.length) firebase.initializeApp(config);
-                const init = async () => {
-                    try {
-                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                            await firebase.auth().signInWithCustomToken(__initial_auth_token);
-                        } else { await firebase.auth().signInAnonymously(); }
-                    } catch (e) { console.error("Auth Error:", e); }
-                };
-                init();
-                return firebase.auth().onAuthStateChanged(setUser);
-            }, []);
-
-            useEffect(() => {
-                if (!user || !config) return;
-                setLoading(true);
-                const ref = firebase.firestore().collection('artifacts').doc(aId).collection('public').doc('data').collection('leads');
-                return ref.onSnapshot(snap => {
-                    const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    setLeads(data.sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)));
-                    setLoading(false);
-                }, (err) => {
-                    console.error("Firestore error:", err);
-                    setLoading(false);
-                });
-            }, [user]);
-
-            const callGemini = async (prompt, search = false) => {
-                // Usando o modelo flash padrão para evitar erros 404 em chaves públicas
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${gKey}`;
-                const payload = {
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: { responseMimeType: "application/json" },
-                    ...(search && { tools: [{ "google_search": {} }] })
-                };
-
-                for (let i = 0; i < 3; i++) {
-                    try {
-                        const res = await fetch(url, { 
-                            method: 'POST', 
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(payload) 
-                        });
-                        if (!res.ok) throw new Error(`Status: ${res.status}`);
-                        const data = await res.json();
-                        let text = data.candidates[0].content.parts[0].text;
-                        // Limpeza de Markdown JSON
-                        const jsonStr = text.replace(/```json/g, "").replace(/```/g, "").trim();
-                        return JSON.parse(jsonStr);
-                    } catch (e) {
-                        if (i === 2) throw e;
-                        await new Promise(r => setTimeout(r, 2000));
-                    }
-                }
-            };
-
-            const startMining = async (forced = null) => {
-                const target = forced || searchSector;
-                if (!user || !target) return;
-                setIsMining(true);
-                setAiBubble({ show: true, text: `Rastreando empresas de ${target} no Google...`, type: 'info' });
-                try {
-                    const prompt = `Atue como prospecção B2B de elite. Use Google Search e encontre 8 empresas REAIS e ativas do setor de "${target}" no Brasil com faturamento estimado acima de R$ 10M. Retorne um array JSON com: "empresa", "cnae", "faturamento", "status": "Novo", "score": (0-100). Responda em PT-BR.`;
-                    const results = await callGemini(prompt, true);
-                    const ref = firebase.firestore().collection('artifacts').doc(aId).collection('public').doc('data').collection('leads');
-                    for (const l of results) await ref.add({ ...l, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
-                    setAiBubble({ show: true, text: `Boa! Joguei os leads de ${target} no radar.`, type: 'success' });
-                } catch (e) { 
-                    console.error(e);
-                    setAiBubble({ show: true, text: "Erro ao minerar. Tente de novo em instantes!", type: 'error' }); 
-                } finally { setIsMining(false); setSearchSector(''); }
-            };
-
-            const validate = async (id, name) => {
-                if (!user) return;
-                setIsProcessing(true);
-                try {
-                    const prompt = `Analise a empresa "${name}" no Brasil via Google Search. Identifique o decisor (CEO/CFO/Diretor Financeiro). Retorne JSON: "decisor" (nome real), "cargo", "email" (corporativo real ou padrão provável), "gancho" (abordagem estratégica para o Banco Safra), "score" (0-100). Responda em Português do Brasil.`;
-                    const data = await callGemini(prompt, true);
-                    await firebase.firestore().collection('artifacts').doc(aId).collection('public').doc('data').collection('leads').doc(id).update({ ...data, status: 'Enriquecido' });
-                } catch (e) { console.error(e); } finally { setIsProcessing(false); }
-            };
-
-            const send = (p) => {
-                const msg = `*Lead EvoluaHunt*\n\n*Empresa:* ${selectedLead.empresa}\n*Decisor:* ${selectedLead.decisor}\n*E-mail:* ${selectedLead.email || 'N/A'}\n*Gancho:* ${selectedLead.gancho}\n\nEnviado por Evolua Digital.`;
-                window.open(`https://wa.me/${p}?text=${encodeURIComponent(msg)}`, '_blank');
-                setShowSendModal(false);
-            };
-
-            useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [leads, activeTab, showSendModal, aiBubble]);
-
-            if (error) return <div className="min-h-screen flex items-center justify-center text-red-500">{error}</div>;
-
-            return (
-                <div className="min-h-screen pb-24 md:pb-0 flex flex-col md:flex-row overflow-x-hidden">
-                    <aside className="fixed left-0 top-0 h-full w-64 bg-[#0d1117] border-r border-white/5 p-6 z-20 hidden md:flex flex-col shadow-2xl">
-                        <div className="flex items-center gap-3 mb-12">
-                            <img src="https://imgur.com/W0gDq47.png" className="w-12 h-12 rounded-xl object-contain bg-white/5 p-1" />
-                            <div><h1 className="text-xl font-bold text-white tracking-tight">Evolua<span className="text-indigo-400">Hunt</span></h1><p className="text-[9px] text-slate-500 uppercase font-bold">Smart Prospecting</p></div>
-                        </div>
-                        <nav className="space-y-1">
-                            <button onClick={()=>setActiveTab('discovery')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab==='discovery'?'tab-active':'text-slate-500 hover:bg-white/5'}`}><i data-lucide="search" className="w-5 h-5"></i> Radar</button>
-                            <button onClick={()=>setActiveTab('pipeline')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab==='pipeline'?'tab-active':'text-slate-500 hover:bg-white/5'}`}><i data-lucide="bar-chart-3" className="w-5 h-5"></i> Pipeline</button>
-                        </nav>
-                        <div className="mt-auto bg-indigo-500/5 p-4 rounded-2xl border border-indigo-500/10">
-                            <div className="flex items-center gap-2 mb-1"><div className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse"></div><span className="text-[10px] uppercase font-bold text-indigo-400">Lumina Core 1.5</span></div>
-                            <p className="text-[10px] text-slate-500 italic">IA conectada e pronta pra rodar!</p>
-                        </div>
-                    </aside>
-
-                    <nav className="fixed bottom-0 left-0 right-0 glass-panel border-t border-white/5 p-2 flex justify-around md:hidden z-50">
-                        <button onClick={()=>setActiveTab('discovery')} className={`flex flex-col items-center p-2 ${activeTab==='discovery'?'text-indigo-400':'text-slate-500'}`}><i data-lucide="search" className="w-6 h-6"></i><span className="text-[10px]">Radar</span></button>
-                        <button onClick={()=>setActiveTab('pipeline')} className={`flex flex-col items-center p-2 ${activeTab==='pipeline'?'text-indigo-400':'text-slate-500'}`}><i data-lucide="bar-chart-3" className="w-6 h-6"></i><span className="text-[10px]">Pipeline</span></button>
-                    </nav>
-
-                    <main className="flex-1 md:ml-64 p-4 md:p-10">
-                        <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-                            <div><h2 className="text-2xl font-bold text-white tracking-tight">Console EvoluaHunt</h2><p className="text-slate-500 text-sm italic">Seu radar inteligente B2B.</p></div>
-                            <div className="bg-[#0d1117] border border-white/5 px-6 py-3 rounded-2xl text-right shadow-xl"><p className="text-[10px] uppercase font-bold text-slate-500">Forecast Share</p><p className="text-lg font-bold text-indigo-400">R$ {(leads.filter(l=>l.score>85).length*3500).toLocaleString('pt-BR')}</p></div>
-                        </header>
-
-                        {activeTab === 'discovery' && (
-                            <div className="space-y-6">
-                                <section className="bg-[#11141b] p-6 rounded-3xl border border-white/5 shadow-2xl relative overflow-hidden group">
-                                    <div className="flex items-center gap-2 mb-4 text-indigo-400 uppercase text-[10px] font-black tracking-widest relative z-10"><i data-lucide="sparkles" className="w-3 h-3 group-hover:animate-pulse"></i> Mineração Profunda</div>
-                                    <div className="flex flex-col md:flex-row gap-4 relative z-10">
-                                        <input type="text" value={searchSector} onChange={e=>setSearchSector(e.target.value)} placeholder="Digite um setor (TI, Logística, Agro...)" className="flex-1 bg-[#080a0f] border border-white/10 rounded-2xl px-5 py-4 text-white outline-none focus:border-indigo-500" />
-                                        <button onClick={()=>startMining()} disabled={isMining||!searchSector} className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-8 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 active:scale-95 transition-all">
-                                            {isMining ? <i data-lucide="loader-2" className="w-5 h-5 animate-spin"></i> : <i data-lucide="zap" className="w-5 h-5"></i>}<span>Explorar</span>
-                                        </button>
-                                    </div>
-                                </section>
-
-                                <div className="grid gap-4">
-                                    {loading ? <div className="py-20 text-center opacity-30 italic">Sincronizando base de dados...</div> : leads.map(l => (
-                                        <div key={l.id} className="bg-[#0d1117] border border-white/5 rounded-3xl p-5 md:p-6 hover:border-indigo-500/30 transition-all shadow-sm">
-                                            <div className="flex flex-col xl:flex-row justify-between items-start gap-6">
-                                                <div className="flex-1 w-full">
-                                                    <div className="flex items-center gap-3 mb-2"><h4 className="text-lg font-bold text-white">{l.empresa}</h4><span className={`text-[9px] px-2 py-0.5 rounded border font-black uppercase ${l.status==='Enriquecido'?'border-indigo-500/30 text-indigo-400 bg-indigo-500/5':'border-white/10 text-slate-500'}`}>{l.status}</span></div>
-                                                    <p className="text-[10px] text-slate-500 font-mono tracking-tighter uppercase mb-4">{l.cnae} • <span className="text-indigo-400 font-bold">{l.faturamento}</span></p>
-                                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 p-4 bg-white/[0.02] rounded-2xl border border-white/5 text-sm">
-                                                        <div><p className="text-[9px] uppercase font-black opacity-60 tracking-widest mb-1">Decisor & E-mail</p><p className="font-bold text-slate-200 leading-tight">{l.decisor || "Pendente"}</p>
-                                                            {l.email && <p className="text-indigo-400 text-[10px] mt-1 truncate"><i data-lucide="mail" className="inline w-3 h-3"></i> {l.email}</p>}</div>
-                                                        <div className="hidden sm:block"><p className="text-[9px] uppercase font-black opacity-60 tracking-widest mb-1">Score Match</p><div className="flex items-center gap-2"><span className="font-mono text-white">{l.score}%</span><div className="h-1.5 flex-1 bg-white/10 rounded-full overflow-hidden max-w-[80px]"><div className="h-full bg-indigo-500 shadow-[0_0_8px_indigo]" style={{width:`${l.score}%`}}></div></div></div></div>
-                                                    </div>
-                                                    {l.gancho && <div className="mt-4 flex gap-3 bg-indigo-500/[0.03] p-4 rounded-2xl border border-indigo-500/10 italic text-xs md:text-sm text-slate-400 leading-relaxed"><i data-lucide="bot" className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5"></i>"{l.gancho}"</div>}
-                                                </div>
-                                                <div className="flex flex-row xl:flex-col gap-2 w-full xl:w-40 mt-4 xl:mt-0">
-                                                    {!l.decisor ? <button onClick={()=>validate(l.id, l.empresa)} disabled={isProcessing} className="flex-1 bg-white/5 hover:bg-indigo-500 text-white p-3 rounded-xl flex items-center justify-center gap-2 font-bold text-xs border border-white/10 transition-all active:scale-95">{isProcessing?<i data-lucide="loader-2" className="w-4 h-4 animate-spin"></i>:<i data-lucide="shield-check" className="w-4 h-4"></i>}Validar</button>
-                                                    : <button onClick={()=>{setSelectedLead(l);setShowSendModal(true)}} className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white p-3 rounded-xl flex items-center justify-center gap-2 font-bold text-xs shadow-lg active:scale-95 transition-all"><i data-lucide="share-2" className="w-4 h-4"></i>Enviar</button>}
-                                                    <button onClick={()=>firebase.firestore().collection('artifacts').doc(aId).collection('public').doc('data').collection('leads').doc(l.id).delete()} className="bg-red-600/5 hover:bg-red-600/20 text-red-500/50 p-3 rounded-xl transition-all"><i data-lucide="trash-2" className="w-4 h-4"></i></button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                        {activeTab !== 'discovery' && <div className="py-40 text-center opacity-10 uppercase italic font-bold">Módulo em Construção</div>}
-                    </main>
-
-                    {showSendModal && (
-                        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-                            <div className="bg-[#11141b] border border-white/10 w-full max-w-sm rounded-3xl p-8 shadow-2xl animate-in zoom-in duration-300">
-                                <h2 className="text-xl font-bold tracking-tight text-white mb-6 text-center">Enviar para:</h2>
-                                <div className="space-y-3">
-                                    {contacts.map((c, i) => (
-                                        <button key={i} onClick={()=>send(c.phone)} className="w-full bg-white/5 hover:bg-indigo-600 text-white p-4 rounded-2xl flex items-center justify-between font-bold group transition-all">
-                                            <div className="flex items-center gap-3"><i data-lucide="message-square" className="w-4 h-4 text-indigo-400 group-hover:text-white"></i>{c.name}</div><i data-lucide="chevron-right" className="w-4 h-4 group-hover:translate-x-1 transition-all"></i>
-                                        </button>
-                                    ))}
-                                    <button onClick={()=>setShowSendModal(false)} className="w-full text-slate-500 text-sm mt-4 text-center">Cancelar</button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    <div className="fixed bottom-24 md:bottom-10 right-6 z-40">
-                        {aiBubble.show && (
-                            <div className="absolute bottom-full right-0 mb-4 w-72 p-5 bg-[#0d1117] border border-indigo-500/30 rounded-2xl shadow-2xl animate-in slide-in-from-bottom-2">
-                                <button onClick={() => setAiBubble({ ...aiBubble, show: false })} className="absolute top-3 right-3 text-slate-600 hover:text-white"><i data-lucide="x" className="w-3 h-3"></i></button>
-                                <div className="flex items-center gap-2 mb-3 text-indigo-400 font-black text-[10px] uppercase tracking-widest"><i data-lucide="sparkles" className="w-3 h-3"></i> Lumina Insight</div>
-                                <p className="text-xs text-white leading-relaxed mb-4">{aiBubble.text}</p>
-                                {!isMining && aiBubble.text.includes("Quer minerar") && (
-                                    <div className="flex gap-2">
-                                        <button onClick={() => { setAiBubble({show:false}); startMining('Logística e Armazéns'); }} className="flex-1 bg-indigo-600 text-white text-[10px] py-2 rounded-lg font-bold shadow-lg transition-all">Sim, bora!</button>
-                                        <button onClick={()=>setAiBubble({show:false})} className="flex-1 bg-white/5 text-slate-400 text-[10px] py-2 rounded-lg font-bold">Agora não</button>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                        <button onClick={()=>setAiBubble({show:true, text: "Vi que o setor de Logística tá bombando no Safra essa semana. Quer minerar leads agora?"})} className="w-14 h-14 bg-indigo-600 rounded-full flex items-center justify-center text-white shadow-[0_0_20px_rgba(79,70,229,0.3)] active:scale-90 transition-all ring-4 ring-white/5 group"><i data-lucide="bot" className="w-7 h-7 group-hover:rotate-12 transition-all"></i></button>
+            <div className="grid grid-cols-1 gap-4">
+              {leads.map((lead) => (
+                <div key={lead.id} className="bg-slate-900 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                  
+                  {/* Lead Info */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 flex-1 w-full">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 text-white font-medium">
+                        <Building className="w-4 h-4 text-slate-400" />
+                        {lead.empresa}
+                      </div>
+                      <div className="text-sm text-slate-400">CNPJ: {lead.cnpj}</div>
+                      <div className="flex items-center gap-1 text-xs text-slate-500 mt-1">
+                        <MapPin className="w-3 h-3" /> {lead.cidade}
+                      </div>
                     </div>
-                </div>
-            );
-        };
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        const render = () => { root.render(<App />); setTimeout(() => { if (window.lucide) window.lucide.createIcons(); }, 300); };
-        render();
-    </script>
-</body>
-</html>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 text-white font-medium">
+                        <User className="w-4 h-4 text-slate-400" />
+                        {lead.decisor}
+                      </div>
+                      <div className="text-sm text-blue-400 font-medium">{lead.cargo}</div>
+                      <div className="flex flex-col gap-1 mt-2">
+                        <div className="flex items-center gap-2 text-xs text-slate-400">
+                          <Phone className="w-3.5 h-3.5" /> {lead.telefone}
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-slate-400">
+                          <Mail className="w-3.5 h-3.5" /> {lead.email}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 text-white font-medium">
+                        <DollarSign className="w-4 h-4 text-slate-400" />
+                        {lead.faturamento}
+                      </div>
+                      <div className="text-sm text-slate-400">Score de Fechamento: </div>
+                      <div className="w-full bg-slate-800 rounded-full h-2 mt-2">
+                        <div className="bg-blue-500 h-2 rounded-full" style={{ width: `${lead.score}%` }}></div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="w-full md:w-auto flex flex-col gap-2 border-t md:border-t-0 md:border-l border-slate-800 pt-4 md:pt-0 md:pl-6">
+                    <button 
+                      onClick={() => handleWhatsApp(lead)}
+                      className="bg-[#25D366] hover:bg-[#1DA851] text-white px-6 py-3 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors w-full whitespace-nowrap shadow-lg shadow-[#25D366]/20"
+                    >
+                      <Send className="w-4 h-4" />
+                      Abordar no WhatsApp
+                    </button>
+                    <p className="text-[10px] text-center text-slate-500">Abre mensagem pronta</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
