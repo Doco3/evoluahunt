@@ -1,7 +1,39 @@
+// =========================================================================
+// 🚀 ESQUEMA DE DEPLOY PARA A VERCEL (PASSO A PASSO)
+// =========================================================================
+// Para colocar esse app no ar na Vercel com zero dor de cabeça, siga isso:
+//
+// 1. Abra seu terminal e crie o projeto base (usando Vite):
+// npm create vite@latest evoluahunt -- --template react
+//
+// 2. Entre na pasta e instale as dependências padrão:
+// cd evoluahunt
+// npm install
+//
+// 3. Instale os ícones e o Tailwind CSS (o framework de design que usamos):
+// npm install lucide-react
+// npm install -D tailwindcss postcss autoprefixer
+// npx tailwindcss init -p
+//
+// 4. No arquivo `tailwind.config.js` que foi criado, cole isso no "content":
+// content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
+//
+// 5. No arquivo `src/index.css`, apague tudo e cole isso:
+// @tailwind base;
+// @tailwind components;
+// @tailwind utilities;
+//
+// 6. FINALMENTE: Copie TUDO que está abaixo desta caixa de comentários 
+// e cole substituindo todo o conteúdo do arquivo `src/App.jsx`.
+//
+// 7. Suba o código para o seu GitHub, crie um projeto novo na Vercel 
+// (vercel.com/new) importando esse repositório, e pronto! Tá no ar.
+// =========================================================================
+
 import React, { useState } from 'react';
 import { Search, Send, Building, User, Phone, MapPin, DollarSign, Target, Zap, CheckCircle2, Mail } from 'lucide-react';
 
-export default function EvoluaHunt() {
+export default function App() {
   const [isSearching, setIsSearching] = useState(false);
   const [leads, setLeads] = useState([]);
   const [vendedor, setVendedor] = useState({ nome: '', empresa: '' });
@@ -137,7 +169,7 @@ export default function EvoluaHunt() {
         {/* Search Panel */}
         <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl mb-6">
           
-          {/* Sessão do Vendedor (NOVO) */}
+          {/* Sessão do Vendedor */}
           <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
             <User className="w-5 h-5 text-blue-400" />
             Seus Dados (Para o Script de Vendas)
