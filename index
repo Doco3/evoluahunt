@@ -1,0 +1,347 @@
+import React, { useState, useEffect } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, onAuthStateChanged, signInAnonymously, signInWithCustomToken } from 'firebase/auth';
+import { getFirestore, collection, addDoc, onSnapshot, query, doc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { 
+  Search, TrendingUp, DollarSign, Zap, MessageSquare, 
+  CheckCircle, Filter, ArrowRight, Target, BarChart3, 
+  Bot, Plus, Loader2, Trash2, ExternalLink, Globe,
+  Briefcase, ShieldCheck, Sparkles, X, ChevronRight,
+  Share2, Phone, Mail, Smartphone
+} from 'lucide-react';
+
+// --- CONFIGURAÇÃO GLOBAL ---
+const apiKey = ""; // A chave é injetada automaticamente pelo ambiente
+
+// --- CONFIGURAÇÃO FIREBASE ---
+const firebaseConfig = JSON.parse(__firebase_config);
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'evolua-hunt-v1';
+
+const App = () => {
+  const [user, setUser] = useState(null);
+  const [leads, setLeads] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('discovery');
+  const [isMining, setIsMining] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showSendModal, setShowSendModal] = useState(false);
+  const [selectedLead, setSelectedLead] = useState(null);
+  const [searchSector, setSearchSector] = useState('');
+  
+  // Estado da Lumina (Robô)
+  const [aiBubble, setAiBubble] = useState({
+    show: false,
+    text: "Olá! Sou a Lumina. Vamos minerar uns leads qualificados hoje?",
+    type: 'info', // 'info', 'question', 'success'
+    action: null
+  });
+
+  const contacts = [
+    { name: 'Doco', phone: '5511989510868' },
+    { name: 'Matheus', phone: '5511999999999' },
+    { name: 'Rafael (Safra)', phone: '5511988888888' }
+  ];
+
+  // --- AUTH & SYNC ---
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (err) { console.error("Erro Auth:", err); }
+    };
+    initAuth();
+    const unsubscribe = onAuthStateChanged(auth, setUser);
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    setLoading(true);
+    const leadsRef = collection(db, 'artifacts', appId, 'public', 'data', 'leads');
+    const q = query(leadsRef);
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setLeads(list.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)));
+      setLoading(false);
+    }, (error) => { console.error("Erro Firestore:", error); setLoading(false); });
+    return () => unsubscribe();
+  }, [user]);
+
+  // --- MOTOR DE INTELIGÊNCIA (FIX 401) ---
+  const callLumina = async (prompt, useSearch = false) => {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+    
+    const payload = {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { responseMimeType: "application/json" }
+    };
+
+    if (useSearch) {
+      payload.tools = [{ "google_search": {} }];
+    }
+
+    // Exponential Backoff implementation
+    let delay = 1000;
+    for (let i = 0; i < 5; i++) {
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          if (response.status === 401) throw new Error("401");
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        return JSON.parse(data.candidates?.[0]?.content?.parts?.[0]?.text);
+      } catch (e) {
+        if (i === 4) throw e;
+        await new Promise(res => setTimeout(res, delay));
+        delay *= 2;
+      }
+    }
+  };
+
+  const startMining = async (sector) => {
+    const target = sector || searchSector;
+    if (!user || !target) return;
+    
+    setIsMining(true);
+    setAiBubble({ show: true, text: `Lumina vasculhando empresas de ${target} no Google...`, type: 'info' });
+
+    try {
+      const prompt = `Atue como um especialista em prospecção B2B de elite no Brasil. 
+      Use o Google Search para encontrar 8 a 10 empresas REAIS e ativas no Brasil do setor de "${target}". 
+      Foque em faturamento acima de R$ 10 milhões. 
+      Retorne um array JSON com: "empresa", "cnae", "faturamento", "status": "Novo", "score": (0-100).`;
+
+      const results = await callLumina(prompt, true);
+
+      for (const lead of results) {
+        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'leads'), {
+          ...lead,
+          createdAt: serverTimestamp()
+        });
+      }
+      setAiBubble({ show: true, text: `Encontrei ${results.length} empresas de ${target}. Elas já estão no seu radar!`, type: 'success' });
+    } catch (e) {
+      setAiBubble({ show: true, text: "Ocorreu um erro de autorização. Tente novamente em alguns segundos.", type: 'error' });
+    } finally {
+      setIsMining(false);
+      setSearchSector('');
+    }
+  };
+
+  const validateLead = async (leadId, companyName) => {
+    if (!user) return;
+    setIsProcessing(true);
+    try {
+      const prompt = `Analise a empresa brasileira "${companyName}" via Google Search. 
+      Retorne um JSON com: "decisor" (nome do CEO/CFO real), "cargo", "contato" (telefone), "email" (e-mail provável), "gancho" (abordagem matadora Banco Safra), "score" (0-100).`;
+      
+      const aiData = await callLumina(prompt, true);
+      const leadRef = doc(db, 'artifacts', appId, 'public', 'data', 'leads', leadId);
+      await updateDoc(leadRef, { ...aiData, status: 'Enriquecido', updatedAt: serverTimestamp() });
+    } catch (e) { console.error(e); } finally { setIsProcessing(false); }
+  };
+
+  // --- UI ACTIONS ---
+  const sendLead = (phone) => {
+    const msg = `Fala! Lead minerado pela EvoluaHunt:\n\n*Empresa:* ${selectedLead.empresa}\n*Decisor:* ${selectedLead.decisor}\n*Contato:* ${selectedLead.contato || 'N/A'}\n*Gancho:* ${selectedLead.gancho}\n\nBora fechar?`;
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+    setShowSendModal(false);
+  };
+
+  return (
+    <div className="min-h-screen bg-[#080a0f] text-slate-300 font-sans pb-24 md:pb-0 selection:bg-indigo-500/30">
+      
+      {/* SIDEBAR (Desktop) */}
+      <aside className="fixed left-0 top-0 h-full w-64 bg-[#0d1117] border-r border-white/5 p-6 z-20 hidden md:flex flex-col shadow-2xl">
+        <div className="flex items-center gap-3 mb-12">
+          <div className="w-12 h-12 rounded-2xl overflow-hidden bg-white/5 border border-white/10 p-1">
+            <img src="https://imgur.com/W0gDq47.png" alt="Evolua" className="w-full h-full object-contain" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-white tracking-tight">Evolua<span className="text-indigo-400">Hunt</span></h1>
+            <p className="text-[9px] text-slate-500 mt-1 uppercase font-bold tracking-widest">Inteligência Comercial</p>
+          </div>
+        </div>
+
+        <nav className="space-y-1">
+          {[{ id: 'discovery', icon: Search, label: 'Radar de Leads' }, { id: 'pipeline', icon: BarChart3, label: 'Pipeline' }, { id: 'wallet', icon: DollarSign, label: 'Comissões' }].map(item => (
+            <button key={item.id} onClick={() => setActiveTab(item.id)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === item.id ? 'bg-indigo-600 text-white font-bold' : 'text-slate-500 hover:bg-white/5'}`}>
+              <item.icon size={20} /> {item.label}
+            </button>
+          ))}
+        </nav>
+      </aside>
+
+      {/* BOTTOM NAV (Mobile) */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-[#0d1117]/90 backdrop-blur-xl border-t border-white/5 p-2 flex justify-around md:hidden z-50">
+        {[{ id: 'discovery', icon: Search, label: 'Radar' }, { id: 'pipeline', icon: BarChart3, label: 'Pipeline' }, { id: 'wallet', icon: DollarSign, label: 'Carteira' }].map(item => (
+          <button key={item.id} onClick={() => setActiveTab(item.id)} className={`flex flex-col items-center gap-1 p-2 ${activeTab === item.id ? 'text-indigo-400' : 'text-slate-500'}`}>
+            <item.icon size={22} />
+            <span className="text-[10px] font-bold uppercase">{item.label}</span>
+          </button>
+        ))}
+      </nav>
+
+      <main className="md:ml-64 p-4 md:p-10">
+        <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+          <div className="flex items-center gap-3 md:block">
+            <div className="md:hidden w-10 h-10 rounded-lg overflow-hidden bg-white/5 border border-white/10 p-1"><img src="https://imgur.com/W0gDq47.png" alt="E" className="w-full h-full object-contain" /></div>
+            <div>
+              <h2 className="text-xl md:text-2xl font-bold text-white tracking-tight">Console EvoluaHunt</h2>
+              <p className="text-slate-500 text-xs italic">Inteligência comercial operando agora.</p>
+            </div>
+          </div>
+          <div className="bg-[#0d1117] border border-white/5 px-6 py-3 rounded-2xl text-right shadow-xl">
+            <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Share Estimado</p>
+            <p className="text-lg font-bold text-indigo-400">R$ {(leads.filter(l => l.score > 85).length * 3500).toLocaleString('pt-BR')}</p>
+          </div>
+        </header>
+
+        {activeTab === 'discovery' && (
+          <div className="space-y-6 animate-in fade-in duration-700">
+            {/* Mining Input */}
+            <section className="bg-[#11141b] p-6 md:p-8 rounded-3xl border border-white/5 shadow-2xl relative overflow-hidden group">
+              <div className="flex items-center gap-2 mb-4 text-indigo-400 uppercase text-[10px] font-black tracking-widest">
+                <Sparkles size={14} className="group-hover:animate-pulse" /> Mineração Profunda de Mercado
+              </div>
+              <div className="flex flex-col md:flex-row gap-4 relative z-10">
+                <div className="flex-1 relative">
+                  <Globe className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600" size={18} />
+                  <input type="text" value={searchSector} onChange={(e) => setSearchSector(e.target.value)} placeholder="Digite o setor (ex: TI, Logística...)" className="w-full bg-[#080a0f] border border-white/10 rounded-2xl pl-12 pr-4 py-4 focus:outline-none focus:border-indigo-500 text-white placeholder:text-slate-700 text-sm md:text-base transition-all" />
+                </div>
+                <button onClick={() => startMining()} disabled={isMining || !searchSector} className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-8 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg transition-all active:scale-95">
+                  {isMining ? <Loader2 className="animate-spin" size={20} /> : <Zap size={20} />}
+                  <span>{isMining ? "Rastreando..." : "Explorar"}</span>
+                </button>
+              </div>
+            </section>
+
+            {/* Radar List */}
+            <div className="space-y-4">
+              <h3 className="font-bold text-sm md:text-base flex items-center gap-2 text-slate-200 px-2">
+                <Briefcase size={18} className="text-indigo-500" /> Radar de Oportunidades
+              </h3>
+              
+              <div className="grid gap-4">
+                {leads.map(lead => (
+                  <div key={lead.id} className="bg-[#0d1117] border border-white/5 rounded-3xl p-5 md:p-6 hover:border-indigo-500/30 transition-all group shadow-sm">
+                    <div className="flex flex-col xl:flex-row justify-between items-start gap-6">
+                      <div className="flex-1 w-full">
+                        <div className="flex items-center gap-3 mb-2">
+                          <h4 className="text-base md:text-lg font-bold text-white group-hover:text-indigo-400 transition-colors">{lead.empresa}</h4>
+                          <span className={`text-[9px] px-2 py-0.5 rounded border font-black uppercase ${lead.status === 'Enriquecido' ? 'border-indigo-500/30 text-indigo-400 bg-indigo-500/5' : 'border-white/10 text-slate-500'}`}>{lead.status}</span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 font-mono tracking-tighter uppercase mb-4">{lead.cnae} • {lead.faturamento}</p>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 p-4 bg-white/[0.02] rounded-2xl border border-white/5">
+                          <div>
+                            <p className="text-[9px] text-slate-500 uppercase font-black mb-1 opacity-60">Decisor</p>
+                            <p className="text-sm font-bold text-slate-200 leading-tight">{lead.decisor || "Não validado"}</p>
+                            <div className="flex flex-col gap-0.5 mt-1 text-[10px]">
+                              {lead.contato && <p className="text-indigo-400 flex items-center gap-1 font-medium"><Phone size={10}/> {lead.contato}</p>}
+                              {lead.email && <p className="text-slate-400 flex items-center gap-1 font-medium lowercase"><Mail size={10}/> {lead.email}</p>}
+                            </div>
+                          </div>
+                          <div className="hidden sm:block">
+                            <p className="text-[9px] text-slate-500 uppercase font-black mb-1 opacity-60">Fit Bancário</p>
+                            <div className="flex items-center gap-3">
+                              <span className="text-sm font-mono font-bold text-white">{lead.score}%</span>
+                              <div className="h-1.5 flex-1 bg-white/10 rounded-full overflow-hidden max-w-[100px]">
+                                <div className="h-full bg-indigo-500 shadow-[0_0_8px_indigo]" style={{ width: `${lead.score}%` }}></div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {lead.gancho && (
+                          <div className="mt-4 flex gap-3 items-start bg-indigo-500/[0.03] p-4 rounded-2xl border border-indigo-500/10 italic text-xs md:text-sm text-slate-400">
+                            <Bot size={18} className="text-indigo-400 shrink-0 mt-0.5" />
+                            "{lead.gancho}"
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex flex-row xl:flex-col gap-2 w-full xl:w-40">
+                        {!lead.decisor ? (
+                          <button onClick={() => validateLead(lead.id, lead.empresa)} disabled={isProcessing} className="flex-1 bg-white/5 hover:bg-indigo-500 text-white p-3 rounded-xl flex items-center justify-center gap-2 font-bold text-xs border border-white/10 active:scale-95 transition-all">
+                            {isProcessing ? <Loader2 className="animate-spin" size={14} /> : <ShieldCheck size={14} />}
+                            <span>Validar</span>
+                          </button>
+                        ) : (
+                          <button onClick={() => { setSelectedLead(lead); setShowSendModal(true); }} className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white p-3 rounded-xl flex items-center justify-center gap-2 font-bold text-xs shadow-lg active:scale-95 transition-all">
+                            <Share2 size={14} /> <span>Enviar</span>
+                          </button>
+                        )}
+                        <button onClick={() => deleteLead(lead.id)} className="bg-red-600/5 hover:bg-red-600/20 text-red-500/50 p-3 rounded-xl transition-all">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* MODAL SEND */}
+      {showSendModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-[#11141b] border border-white/10 w-full max-w-sm rounded-3xl p-8 shadow-2xl animate-in zoom-in duration-300">
+            <div className="flex justify-between items-center mb-6 text-white">
+              <h2 className="text-xl font-bold tracking-tight">Enviar para:</h2>
+              <button onClick={() => setShowSendModal(false)}><X size={20} /></button>
+            </div>
+            <div className="space-y-3">
+              {contacts.map((c, i) => (
+                <button key={i} onClick={() => sendLead(c.phone)} className="w-full bg-white/5 hover:bg-indigo-600 text-white p-4 rounded-2xl flex items-center justify-between group transition-all font-bold">
+                  {c.name} <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform" />
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* LUMINA BUBBLE INTERATIVA */}
+      <div className="fixed bottom-24 md:bottom-10 right-6 z-40">
+        {aiBubble.show && (
+          <div className="absolute bottom-full right-0 mb-4 w-72 animate-in slide-in-from-bottom-2">
+            <div className="bg-[#0d1117] border border-indigo-500/30 p-5 rounded-2xl shadow-2xl relative">
+              <button onClick={() => setAiBubble({ ...aiBubble, show: false })} className="absolute top-3 right-3 text-slate-600 hover:text-white"><X size={14} /></button>
+              <div className="flex items-center gap-2 mb-3 text-indigo-400 font-black text-[10px] uppercase tracking-widest"><Sparkles size={12} /> Lumina Insight</div>
+              <p className="text-xs text-white leading-relaxed mb-4">{aiBubble.text}</p>
+              {aiBubble.type === 'question' && (
+                <div className="flex gap-2">
+                  <button onClick={() => aiBubble.action()} className="flex-1 bg-indigo-600 text-white text-[10px] py-2 rounded-lg font-bold">Sim, bora!</button>
+                  <button onClick={() => setAiBubble({ ...aiBubble, show: false })} className="flex-1 bg-white/5 text-slate-400 text-[10px] py-2 rounded-lg font-bold">Agora não</button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        <button onClick={() => setAiBubble({ show: true, text: "Notei uma oportunidade forte no setor de Logística hoje. Quer que eu rastreie 10 empresas para o Rafael?", type: 'question', action: () => startMining('Logística e Armazéns') })} className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-indigo-700 rounded-full flex items-center justify-center text-white shadow-xl active:scale-90 transition-all ring-4 ring-white/5 group">
+          <Bot size={28} className="group-hover:rotate-12 transition-transform" />
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default App;
