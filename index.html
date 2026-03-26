@@ -47,6 +47,8 @@
         }
         
         .tab-active { background: #4f46e5; color: white; font-weight: bold; box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.4); }
+        .animate-pulse-slow { animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
     </style>
 </head>
 <body>
@@ -130,7 +132,7 @@
                         } else {
                             await firebase.auth().signInAnonymously();
                         }
-                    } catch (err) { console.error(err); }
+                    } catch (err) { console.error("Auth Error:", err); }
                 };
                 init();
                 return firebase.auth().onAuthStateChanged(setUser);
@@ -139,7 +141,6 @@
             useEffect(() => {
                 if (!user || !config) return;
                 setLoading(true);
-                // Usando o path correto exigido pelo ambiente e sugerido para Firestore
                 const ref = firebase.firestore().collection('artifacts').doc(aId).collection('public').doc('data').collection('leads');
                 return ref.onSnapshot(snap => {
                     const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -151,7 +152,17 @@
                 });
             }, [user]);
 
+            const cleanAIResponse = (text) => {
+                // Remove blocos de código markdown se existirem
+                return text.replace(/```json/g, "").replace(/```/g, "").trim();
+            };
+
             const callGemini = async (prompt, search = false) => {
+                if (!gKey || gKey === "COLE_SUA_CHAVE_AQUI") {
+                    console.error("Chave Gemini não configurada");
+                    return null;
+                }
+
                 const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${gKey}`;
                 const payload = {
                     contents: [{ parts: [{ text: prompt }] }],
@@ -159,51 +170,84 @@
                     ...(search && { tools: [{ "google_search": {} }] })
                 };
 
-                for (let i = 0; i < 5; i++) {
+                for (let i = 0; i < 3; i++) {
                     try {
                         const res = await fetch(url, { method: 'POST', body: JSON.stringify(payload) });
-                        if (!res.ok) throw new Error(res.status);
+                        if (!res.ok) throw new Error(`HTTP ${res.status}`);
                         const data = await res.json();
-                        return JSON.parse(data.candidates[0].content.parts[0].text);
+                        const rawText = data.candidates[0].content.parts[0].text;
+                        return JSON.parse(cleanAIResponse(rawText));
                     } catch (e) {
-                        if (i === 4) throw e;
-                        await new Promise(r => setTimeout(r, Math.pow(2, i) * 1000));
+                        console.error("Gemini attempt failed:", e);
+                        if (i === 2) throw e;
+                        await new Promise(r => setTimeout(r, 2000));
                     }
                 }
             };
 
-            const startMining = async (s) => {
-                const target = s || searchSector;
+            const startMining = async (forcedSector = null) => {
+                const target = forcedSector || searchSector;
                 if (!user || !target) return;
+                
                 setIsMining(true);
-                setAiBubble({ show: true, text: `Rastreando empresas de ${target} no Google...`, type: 'info' });
+                setAiBubble({ show: true, text: `Lumina rastreando empresas de ${target} no Google...`, type: 'info', action: null });
+                
                 try {
                     const prompt = `Atue como prospecção B2B de elite no Brasil. Use Google Search e encontre 8 empresas REAIS de "${target}" com faturamento estimado acima de R$ 10M. Retorne um array JSON com: "empresa", "cnae", "faturamento", "status": "Novo", "score": (0-100). Responda em Português do Brasil.`;
                     const results = await callGemini(prompt, true);
-                    const ref = firebase.firestore().collection('artifacts').doc(aId).collection('public').doc('data').collection('leads');
-                    for (const l of results) await ref.add({ ...l, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
-                    setAiBubble({ show: true, text: `Sucesso! Adicionei ${results.length} leads ao radar.`, type: 'success' });
-                } catch (e) { setAiBubble({ show: true, text: "Erro na API Gemini. Verifique se a busca está habilitada.", type: 'error' }); }
-                finally { setIsMining(false); setSearchSector(''); }
+                    
+                    if (results && Array.isArray(results)) {
+                        const ref = firebase.firestore().collection('artifacts').doc(aId).collection('public').doc('data').collection('leads');
+                        for (const l of results) {
+                            await ref.add({ ...l, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+                        }
+                        setAiBubble({ show: true, text: `Sucesso! Adicionei ${results.length} novos leads reais de ${target} ao radar.`, type: 'success', action: null });
+                    }
+                } catch (e) { 
+                    console.error(e);
+                    setAiBubble({ show: true, text: "Erro ao minerar. Verifique se as regras do Firestore estão em 'Modo de Teste'.", type: 'error', action: null }); 
+                } finally { 
+                    setIsMining(false); 
+                    setSearchSector(''); 
+                }
             };
 
-            const validate = async (id, name) => {
+            const validateLead = async (id, name) => {
                 if (!user) return;
                 setIsProcessing(true);
                 try {
                     const prompt = `Analise a empresa "${name}" no Brasil via Google Search. Retorne JSON: "decisor" (nome CEO/CFO real), "cargo", "contato" (telefone), "email" (e-mail corporativo), "gancho" (abordagem estratégica Banco Safra), "score" (0-100). Responda em Português do Brasil.`;
                     const data = await callGemini(prompt, true);
-                    await firebase.firestore().collection('artifacts').doc(aId).collection('public').doc('data').collection('leads').doc(id).update({ ...data, status: 'Enriquecido' });
-                } catch (e) { console.error(e); } finally { setIsProcessing(false); }
+                    if (data) {
+                        await firebase.firestore().collection('artifacts').doc(aId).collection('public').doc('data').collection('leads').doc(id).update({ 
+                            ...data, 
+                            status: 'Enriquecido',
+                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                    }
+                } catch (e) { 
+                    console.error(e); 
+                } finally { 
+                    setIsProcessing(false); 
+                }
+            };
+
+            const deleteLead = async (id) => {
+                try {
+                    await firebase.firestore().collection('artifacts').doc(aId).collection('public').doc('data').collection('leads').doc(id).delete();
+                } catch (e) { console.error(e); }
             };
 
             const send = (p) => {
+                if (!selectedLead) return;
                 const msg = `*Lead EvoluaHunt*\n\n*Empresa:* ${selectedLead.empresa}\n*Decisor:* ${selectedLead.decisor}\n*Cargo:* ${selectedLead.cargo}\n*Contato:* ${selectedLead.contato || 'N/A'}\n*Email:* ${selectedLead.email || 'N/A'}\n*Gancho:* ${selectedLead.gancho}\n\nEnviado por Evolua Digital.`;
                 window.open(`https://wa.me/${p}?text=${encodeURIComponent(msg)}`, '_blank');
                 setShowSendModal(false);
             };
 
-            useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [leads, activeTab, showSendModal, aiBubble]);
+            useEffect(() => { 
+                if (window.lucide) window.lucide.createIcons(); 
+            }, [leads, activeTab, showSendModal, aiBubble, error]);
 
             if (error) return (
                 <div className="min-h-screen flex items-center justify-center p-6 text-center">
@@ -264,8 +308,9 @@
                                     <div className="flex items-center gap-2 mb-4 text-indigo-400 uppercase text-[10px] font-black tracking-widest relative z-10"><i data-lucide="sparkles" className="w-3 h-3 group-hover:animate-pulse"></i> Mineração Profunda</div>
                                     <div className="flex flex-col md:flex-row gap-4 relative z-10">
                                         <input type="text" value={searchSector} onChange={e=>setSearchSector(e.target.value)} placeholder="Digite um setor (TI, Logística, Agro...)" className="flex-1 bg-[#080a0f] border border-white/10 rounded-2xl px-5 py-4 text-white outline-none focus:border-indigo-500 font-medium" />
-                                        <button onClick={()=>startMining()} disabled={isMining||!searchSector} className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-8 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg transition-all active:scale-95">
-                                            {isMining ? <i data-lucide="loader-2" className="w-5 h-5 animate-spin"></i> : <i data-lucide="zap" className="w-5 h-5"></i>} <span>Explorar</span>
+                                        <button onClick={()=>startMining()} disabled={isMining||!searchSector} className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-8 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg transition-all active:scale-95 min-w-[140px]">
+                                            {isMining ? <i data-lucide="loader-2" className="w-5 h-5 animate-spin"></i> : <i data-lucide="zap" className="w-5 h-5"></i>} 
+                                            <span>{isMining ? "Minerando..." : "Explorar"}</span>
                                         </button>
                                     </div>
                                 </section>
@@ -292,7 +337,7 @@
                                                             <p className="text-[9px] uppercase font-black opacity-60 tracking-widest mb-1">Match Score</p>
                                                             <div className="flex items-center gap-2">
                                                                 <span className="font-mono text-white">{l.score}%</span>
-                                                                <div className="h-1 flex-1 bg-white/10 rounded-full overflow-hidden max-w-[80px]">
+                                                                <div className="h-1.5 flex-1 bg-white/10 rounded-full overflow-hidden max-w-[80px]">
                                                                     <div className="h-full bg-indigo-500 shadow-[0_0_8px_indigo]" style={{width:`${l.score}%`}}></div>
                                                                 </div>
                                                             </div>
@@ -305,14 +350,14 @@
 
                                                     {l.gancho && (
                                                         <div className="mt-4 flex gap-3 bg-indigo-500/[0.03] p-4 rounded-2xl border border-indigo-500/10 italic text-xs text-slate-400 leading-relaxed">
-                                                            <i data-lucide="bot" className="w-4 h-4 text-indigo-500 shrink-0"></i>
+                                                            <i data-lucide="bot" className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5"></i>
                                                             "{l.gancho}"
                                                         </div>
                                                     )}
                                                 </div>
                                                 <div className="flex flex-row xl:flex-col gap-2 w-full xl:w-40 mt-4 xl:mt-0">
                                                     {!l.decisor ? (
-                                                        <button onClick={()=>validate(l.id, l.empresa)} disabled={isProcessing} className="flex-1 bg-white/5 hover:bg-indigo-500 text-white p-3 rounded-xl flex items-center justify-center gap-2 font-bold text-xs border border-white/10 transition-all active:scale-95 disabled:opacity-50">
+                                                        <button onClick={()=>validateLead(l.id, l.empresa)} disabled={isProcessing} className="flex-1 bg-white/5 hover:bg-indigo-500 text-white p-3 rounded-xl flex items-center justify-center gap-2 font-bold text-xs border border-white/10 transition-all active:scale-95 disabled:opacity-50">
                                                             {isProcessing ? <i data-lucide="loader-2" className="w-4 h-4 animate-spin"></i> : <i data-lucide="shield-check" className="w-4 h-4"></i>}
                                                             Validar
                                                         </button>
@@ -322,7 +367,7 @@
                                                             Enviar
                                                         </button>
                                                     )}
-                                                    <button onClick={()=>firebase.firestore().collection('artifacts').doc(aId).collection('public').doc('data').collection('leads').doc(l.id).delete()} className="bg-red-600/5 hover:bg-red-600/20 text-red-500/50 p-3 rounded-xl transition-all">
+                                                    <button onClick={()=>deleteLead(l.id)} className="bg-red-600/5 hover:bg-red-600/20 text-red-500/50 p-3 rounded-xl transition-all">
                                                         <i data-lucide="trash-2" className="w-4 h-4"></i>
                                                     </button>
                                                 </div>
@@ -341,7 +386,7 @@
                             <div className="bg-[#11141b] border border-white/10 w-full max-w-sm rounded-3xl p-8 shadow-2xl animate-in zoom-in duration-300">
                                 <div className="flex justify-between items-center mb-6 text-white">
                                     <h2 className="text-xl font-bold tracking-tight">Enviar para:</h2>
-                                    <button onClick={()=>setShowSendModal(false)} className="text-slate-500 hover:text-white"><i data-lucide="x" className="w-5 h-5"></i></button>
+                                    <button onClick={()=>setShowSendModal(false)} className="text-slate-500 hover:text-white transition-colors"><i data-lucide="x" className="w-5 h-5"></i></button>
                                 </div>
                                 <div className="space-y-3">
                                     {contacts.map((c, i) => (
@@ -363,15 +408,29 @@
                     <div className="fixed bottom-24 md:bottom-10 right-6 z-40">
                         {aiBubble.show && (
                             <div className="absolute bottom-full right-0 mb-4 w-72 p-5 bg-[#0d1117] border border-indigo-500/30 rounded-2xl shadow-2xl animate-in slide-in-from-bottom-2">
-                                <div className="flex items-center gap-2 mb-3 text-indigo-400 font-black text-[10px] uppercase tracking-widest"><i data-lucide="sparkles" className="w-3 h-3"></i> Lumina Insight</div>
-                                <p className="text-xs text-white leading-relaxed mb-4">{aiBubble.text}</p>
-                                <div className="flex gap-2">
-                                    <button onClick={()=>startMining('Logística e Armazéns')} className="flex-1 bg-indigo-600 text-white text-[10px] py-2 rounded-lg font-bold">Sim, bora!</button>
-                                    <button onClick={()=>setAiBubble({show:false})} className="flex-1 bg-white/5 text-slate-400 text-[10px] py-2 rounded-lg font-bold">Agora não</button>
+                                <div className="bg-[#0d1117] border border-indigo-500/30 p-5 rounded-2xl shadow-2xl relative">
+                                    <button onClick={() => setAiBubble({ ...aiBubble, show: false })} className="absolute top-3 right-3 text-slate-600 hover:text-white transition-colors"><i data-lucide="x" className="w-3 h-3"></i></button>
+                                    <div className="flex items-center gap-2 mb-3 text-indigo-400 font-black text-[10px] uppercase tracking-widest"><i data-lucide="sparkles" className="w-3 h-3"></i> Lumina Insight</div>
+                                    <p className="text-xs text-white leading-relaxed mb-4">{aiBubble.text}</p>
+                                    <div className="flex gap-2">
+                                        <button 
+                                            onClick={() => {
+                                                setAiBubble({...aiBubble, show: false});
+                                                startMining('Logística e Armazéns');
+                                            }} 
+                                            className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] py-2 rounded-lg font-bold shadow-lg transition-all"
+                                        >
+                                            Sim, bora!
+                                        </button>
+                                        <button onClick={()=>setAiBubble({show:false})} className="flex-1 bg-white/5 text-slate-400 text-[10px] py-2 rounded-lg font-bold">Agora não</button>
+                                    </div>
                                 </div>
                             </div>
                         )}
-                        <button onClick={()=>setAiBubble({show:true, text: "Notei que o setor de Logística está com score de fechamento alto essa semana no Safra. Quer minerar leads agora?"})} className="w-14 h-14 bg-indigo-600 rounded-full flex items-center justify-center text-white shadow-[0_0_20px_rgba(79,70,229,0.3)] active:scale-90 transition-all ring-4 ring-white/5 group">
+                        <button 
+                            onClick={()=>setAiBubble({show:true, text: "Notei que o setor de Logística está com score de fechamento alto essa semana no Safra. Quer minerar leads agora?"})} 
+                            className="w-14 h-14 bg-indigo-600 rounded-full flex items-center justify-center text-white shadow-[0_0_20px_rgba(79,70,229,0.3)] active:scale-90 transition-all ring-4 ring-white/5 group"
+                        >
                             <i data-lucide="bot" className="w-7 h-7 group-hover:rotate-12 transition-transform"></i>
                         </button>
                     </div>
