@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="pt-pt">
+<html lang="pt-br">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -50,7 +50,6 @@
     </style>
 </head>
 <body>
-    <!-- Ecrã de carregamento inicial -->
     <div id="loader"><div class="spinner"></div></div>
     <div id="root"></div>
 
@@ -58,13 +57,11 @@
         const { useState, useEffect } = React;
 
         // ==========================================================
-        // 🚀 CONFIGURAÇÃO PARA VERCEL 🚀
+        // 🚀 CONFIGURAÇÃO PARA VERCEL (MANTIDAS AS SUAS CHAVES) 🚀
         // ==========================================================
         
-        // 1. Chave da API Gemini para uso externo (Vercel)
         const VERCEL_GEMINI_KEY = "AIzaSyDPzPjyijRbzFswEd9vrVub7tpUlJTrYEE"; 
 
-        // 2. Configuração do Firebase
         const VERCEL_FIREBASE_CONFIG = {
             apiKey: "AIzaSyCvyPlMgdZMO_vDLFDzxGqnFTlvgVRypnY",
             authDomain: "evoluahunt.firebaseapp.com",
@@ -77,7 +74,6 @@
 
         // ==========================================================
 
-        // Lógica para obter as chaves e IDs de ambiente
         const getKeys = () => {
             let config = null;
             let gKey = VERCEL_GEMINI_KEY;
@@ -85,8 +81,8 @@
             let isInternal = false;
 
             try {
-                // Tenta obter do ambiente de preview se disponível
                 if (typeof __firebase_config !== 'undefined') config = JSON.parse(__firebase_config);
+                // Verifica se estamos no ambiente do chat (onde apiKey é injetada)
                 if (typeof apiKey !== 'undefined' && apiKey !== "") {
                     gKey = apiKey;
                     isInternal = true;
@@ -94,12 +90,7 @@
                 if (typeof __app_id !== 'undefined') aId = __app_id;
             } catch (e) {}
 
-            return { 
-                config: config || VERCEL_FIREBASE_CONFIG, 
-                gKey, 
-                aId,
-                isInternal 
-            };
+            return { config: config || VERCEL_FIREBASE_CONFIG, gKey, aId, isInternal };
         };
 
         const { config, gKey, aId, isInternal } = getKeys();
@@ -123,7 +114,6 @@
                 { name: 'Rafael (Safra)', phone: '5511988888888' }
             ];
 
-            // Inicialização da Autenticação
             useEffect(() => {
                 const l = document.getElementById('loader');
                 if (l) l.style.display = 'none';
@@ -143,13 +133,12 @@
                         } else {
                             await firebase.auth().signInAnonymously();
                         }
-                    } catch (err) { console.error("Erro de Autenticação:", err); }
+                    } catch (err) { console.error("Erro Auth:", err); }
                 };
                 initAuth();
                 return firebase.auth().onAuthStateChanged(setUser);
             }, []);
 
-            // Sincronização com Firestore
             useEffect(() => {
                 if (!user || !config) return;
                 setLoading(true);
@@ -159,63 +148,61 @@
                     setLeads(data.sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)));
                     setLoading(false);
                 }, (err) => {
-                    console.error("Erro no Firestore:", err);
+                    console.error("Erro Firestore:", err);
                     setLoading(false);
                 });
             }, [user]);
 
-            // Limpeza de resposta da IA (remove markdown)
             const cleanAIResponse = (text) => {
                 return text.replace(/```json/g, "").replace(/```/g, "").trim();
             };
 
-            // Chamada à API Gemini (Gere 404 fix)
             const callGemini = async (prompt, search = false) => {
-                // No Vercel, o modelo 2.5 pode dar 404 se não estiver disponível para a chave pública.
-                // Usamos 1.5-flash como fallback seguro no Vercel.
-                const modelId = isInternal ? "gemini-2.5-flash-preview-09-2025" : "gemini-1.5-flash";
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${gKey}`;
+                // Tenta primeiro o modelo preview se estiver no Canvas, senão usa o flash padrão
+                const models = isInternal 
+                    ? ["gemini-2.5-flash-preview-09-2025", "gemini-1.5-flash"] 
+                    : ["gemini-1.5-flash"];
                 
-                const payload = {
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: { responseMimeType: "application/json" },
-                    ...(search && { tools: [{ "google_search": {} }] })
-                };
+                for (const modelId of models) {
+                    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${gKey}`;
+                    const payload = {
+                        contents: [{ parts: [{ text: prompt }] }],
+                        generationConfig: { responseMimeType: "application/json" },
+                        ...(search && { tools: [{ "google_search": {} }] })
+                    };
 
-                for (let i = 0; i < 3; i++) {
                     try {
                         const res = await fetch(url, { method: 'POST', body: JSON.stringify(payload) });
+                        if (res.status === 404) continue; // Tenta o próximo modelo
                         if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                        
                         const data = await res.json();
                         const rawText = data.candidates[0].content.parts[0].text;
                         return JSON.parse(cleanAIResponse(rawText));
                     } catch (e) {
-                        console.error(`Tentativa ${i+1} falhou:`, e);
-                        if (i === 2) throw e;
-                        await new Promise(r => setTimeout(r, 2000));
+                        console.error(`Erro com modelo ${modelId}:`, e);
+                        if (modelId === models[models.length - 1]) throw e;
                     }
                 }
             };
 
-            // Iniciar Mineração de Leads
             const startMining = async (forcedSector = null) => {
                 const target = forcedSector || searchSector;
                 if (!user || !target) return;
                 setIsMining(true);
-                setAiBubble({ show: true, text: `A Lumina está a rastrear empresas de ${target} no Google...`, type: 'info', action: null });
+                setAiBubble({ show: true, text: `Lumina rastreando empresas de ${target} no Google...`, type: 'info' });
                 try {
                     const prompt = `Atue como prospecção B2B de elite no Brasil. Use Google Search e encontre 8 empresas REAIS de "${target}" com faturamento estimado acima de R$ 10M. Retorne um array JSON com: "empresa", "cnae", "faturamento", "status": "Novo", "score": (0-100). Responda em Português do Brasil.`;
                     const results = await callGemini(prompt, true);
                     const ref = firebase.firestore().collection('artifacts').doc(aId).collection('public').doc('data').collection('leads');
                     for (const l of results) await ref.add({ ...l, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
-                    setAiBubble({ show: true, text: `Sucesso! Adicionei ${results.length} leads ao radar.`, type: 'success' });
+                    setAiBubble({ show: true, text: `Sucesso! Adicionei ${results.length} leads de ${target} ao radar.`, type: 'success' });
                 } catch (e) { 
-                    setAiBubble({ show: true, text: "Erro ao minerar. Verifique a ligação ou a chave da API.", type: 'error' }); 
+                    setAiBubble({ show: true, text: "Erro ao minerar. Tente novamente em alguns segundos.", type: 'error' }); 
                 } finally { setIsMining(false); setSearchSector(''); }
             };
 
-            // Validar e Enriquecer Lead
-            const validate = async (id, name) => {
+            const validateLead = async (id, name) => {
                 if (!user) return;
                 setIsProcessing(true);
                 try {
@@ -225,14 +212,16 @@
                 } catch (e) { console.error(e); } finally { setIsProcessing(false); }
             };
 
-            // Abrir WhatsApp para envio
+            const deleteLead = async (id) => {
+                await firebase.firestore().collection('artifacts').doc(aId).collection('public').doc('data').collection('leads').doc(id).delete();
+            };
+
             const send = (p) => {
                 const msg = `*Lead EvoluaHunt*\n\n*Empresa:* ${selectedLead.empresa}\n*Decisor:* ${selectedLead.decisor}\n*Cargo:* ${selectedLead.cargo}\n*Contato:* ${selectedLead.contato || 'N/A'}\n*Email:* ${selectedLead.email || 'N/A'}\n*Gancho:* ${selectedLead.gancho}\n\nEnviado por Evolua Digital.`;
                 window.open(`https://wa.me/${p}?text=${encodeURIComponent(msg)}`, '_blank');
                 setShowSendModal(false);
             };
 
-            // Atualiza ícones após renderização
             useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [leads, activeTab, showSendModal, aiBubble]);
 
             if (error) return (
@@ -258,7 +247,7 @@
                         </div>
                         <nav className="space-y-1">
                             <button onClick={()=>setActiveTab('discovery')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab==='discovery'?'tab-active':'text-slate-500 hover:bg-white/5'}`}>
-                                <i data-lucide="search" className="w-5 h-5"></i> Radar
+                                <i data-lucide="search" className="w-5 h-5"></i> Radar de Leads
                             </button>
                             <button onClick={()=>setActiveTab('pipeline')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab==='pipeline'?'tab-active':'text-slate-500 hover:bg-white/5'}`}>
                                 <i data-lucide="bar-chart-3" className="w-5 h-5"></i> Pipeline
@@ -273,7 +262,7 @@
                         </div>
                     </aside>
 
-                    {/* NAVEGAÇÃO MÓVEL */}
+                    {/* NAVEGAÇÃO MOBILE */}
                     <nav className="fixed bottom-0 left-0 right-0 glass-panel border-t border-white/5 p-2 flex justify-around md:hidden z-50">
                         <button onClick={()=>setActiveTab('discovery')} className={`flex flex-col items-center p-2 ${activeTab==='discovery'?'text-indigo-400':'text-slate-500'}`}><i data-lucide="search" className="w-6 h-6"></i><span className="text-[10px]">Radar</span></button>
                         <button onClick={()=>setActiveTab('pipeline')} className={`flex flex-col items-center p-2 ${activeTab==='pipeline'?'text-indigo-400':'text-slate-500'}`}><i data-lucide="bar-chart-3" className="w-6 h-6"></i><span className="text-[10px]">Pipeline</span></button>
@@ -281,9 +270,9 @@
 
                     <main className="flex-1 md:ml-64 p-4 md:p-10">
                         <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-                            <div><h2 className="text-2xl font-bold text-white tracking-tight">Consola EvoluaHunt</h2><p className="text-slate-500 text-sm">O seu radar inteligente de prospecção.</p></div>
+                            <div><h2 className="text-2xl font-bold text-white tracking-tight">Console EvoluaHunt</h2><p className="text-slate-500 text-sm">Seu radar inteligente de prospecção.</p></div>
                             <div className="bg-[#0d1117] border border-white/5 px-6 py-3 rounded-2xl text-right shadow-xl">
-                                <p className="text-[10px] uppercase font-bold text-slate-500 tracking-widest">Partilha Prevista</p>
+                                <p className="text-[10px] uppercase font-bold text-slate-500 tracking-widest">Share Estimado</p>
                                 <p className="text-lg font-bold text-indigo-400">R$ {(leads.filter(l=>l.score>85).length*3500).toLocaleString('pt-BR')}</p>
                             </div>
                         </header>
@@ -301,8 +290,8 @@
                                 </section>
 
                                 <div className="grid gap-4">
-                                    {loading ? <div className="py-20 text-center opacity-30 italic">A sincronizar base de dados...</div> : leads.map(l => (
-                                        <div key={l.id} className="bg-[#0d1117] border border-white/5 rounded-3xl p-5 md:p-6 hover:border-indigo-500/30 transition-all shadow-sm">
+                                    {loading ? <div className="py-20 text-center opacity-30 italic">Sincronizando banco de dados...</div> : leads.map(l => (
+                                        <div key={l.id} className="bg-[#0d1117] border border-white/5 rounded-3xl p-5 md:p-6 hover:border-indigo-500/40 transition-all shadow-sm">
                                             <div className="flex flex-col xl:flex-row justify-between items-start gap-6">
                                                 <div className="flex-1 w-full">
                                                     <div className="flex items-center gap-3 mb-2">
@@ -320,7 +309,7 @@
                                                         </div>
                                                         <div className="hidden sm:block">
                                                             <p className="text-[9px] uppercase font-black opacity-60 tracking-widest mb-1">Score de Match</p>
-                                                            <div className="flex items-center gap-2">
+                                                            <div className="flex items-center gap-3">
                                                                 <span className="font-mono text-white">{l.score}%</span>
                                                                 <div className="h-1.5 flex-1 bg-white/10 rounded-full overflow-hidden max-w-[80px]">
                                                                     <div className="h-full bg-indigo-500 shadow-[0_0_8px_indigo]" style={{width:`${l.score}%`}}></div>
@@ -335,7 +324,7 @@
 
                                                     {l.gancho && (
                                                         <div className="mt-4 flex gap-3 bg-indigo-500/[0.03] p-4 rounded-2xl border border-indigo-500/10 italic text-xs text-slate-400 leading-relaxed">
-                                                            <i data-lucide="bot" className="w-4 h-4 text-indigo-500 shrink-0"></i>
+                                                            <i data-lucide="bot" className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5"></i>
                                                             "{l.gancho}"
                                                         </div>
                                                     )}
@@ -405,7 +394,7 @@
                                             }} 
                                             className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] py-2 rounded-lg font-bold shadow-lg transition-all"
                                         >
-                                            Sim, vamos!
+                                            Sim, bora!
                                         </button>
                                         <button onClick={()=>setAiBubble({show:false})} className="flex-1 bg-white/5 text-slate-400 text-[10px] py-2 rounded-lg font-bold">Agora não</button>
                                     </div>
@@ -413,7 +402,7 @@
                             </div>
                         )}
                         <button 
-                            onClick={()=>setAiBubble({show:true, text: "Detetei que o setor de Logística está com score de fecho alto esta semana no Safra. Quer minerar leads agora?"})} 
+                            onClick={()=>setAiBubble({show:true, text: "Detectei que o setor de Logística está com score de fechamento alto no Safra. Quer minerar agora?"})} 
                             className="w-14 h-14 bg-indigo-600 rounded-full flex items-center justify-center text-white shadow-[0_0_20px_rgba(79,70,229,0.3)] active:scale-90 transition-all ring-4 ring-white/5 group"
                         >
                             <i data-lucide="bot" className="w-7 h-7 group-hover:rotate-12 transition-transform"></i>
