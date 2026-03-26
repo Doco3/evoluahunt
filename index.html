@@ -151,22 +151,20 @@
 
             const cleanAIResponse = (text) => {
                 if (!text) return "";
-                // Limpa marcações de markdown do JSON para evitar erros de parsing
                 return text.replace(/```json/g, "").replace(/```/g, "").trim();
             };
 
             const callGemini = async (prompt, search = false) => {
-                // DETEÇÃO DINÂMICA DO AMBIENTE
-                // No Canvas (interno), a apiKey global é injetada. No Vercel, usamos VERCEL_GEMINI_KEY.
                 const isInternal = (typeof apiKey !== 'undefined' && apiKey !== "");
                 const currentKey = isInternal ? apiKey : VERCEL_GEMINI_KEY;
                 
-                // Lista de modelos para tentar (fallback para evitar 404)
+                // Lista alargada de modelos para evitar 404 no Vercel
                 const modelsToTry = isInternal 
                     ? ["gemini-2.5-flash-preview-09-2025", "gemini-1.5-flash"] 
-                    : ["gemini-1.5-flash", "gemini-1.5-flash-latest"];
+                    : ["gemini-1.5-flash", "gemini-pro"];
                 
                 for (const modelId of modelsToTry) {
+                    // Tenta o endpoint v1beta primeiro para suporte a ferramentas de pesquisa
                     const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${currentKey}`;
                     
                     const payload = {
@@ -182,23 +180,19 @@
                             body: JSON.stringify(payload) 
                         });
                         
-                        if (res.status === 404) {
-                            console.warn(`Modelo ${modelId} não encontrado (404). A tentar o próximo...`);
-                            continue;
-                        }
+                        if (res.status === 404) continue;
                         
                         if (!res.ok) {
-                            const errInfo = await res.json();
-                            throw new Error(`Erro HTTP ${res.status}: ${JSON.stringify(errInfo)}`);
+                            const errInfo = await res.json().catch(() => ({}));
+                            throw new Error(`Erro HTTP ${res.status}`);
                         }
 
                         const data = await res.json();
                         const rawText = data.candidates[0].content.parts[0].text;
                         return JSON.parse(cleanAIResponse(rawText));
                     } catch (e) {
-                        console.error(`Falha com o modelo ${modelId}:`, e);
+                        console.error(`Falha no modelo ${modelId}:`, e);
                         if (modelId === modelsToTry[modelsToTry.length - 1]) throw e;
-                        await new Promise(r => setTimeout(r, 1000));
                     }
                 }
             };
@@ -208,6 +202,7 @@
                 if (!user || !target) return;
                 
                 setIsMining(true);
+                // Atualiza a bolha para estado de carregamento e remove botões
                 setAiBubble({ show: true, text: `A Lumina está a rastrear empresas de ${target} no Google...`, type: 'info' });
                 
                 try {
@@ -223,7 +218,7 @@
                     }
                 } catch (e) { 
                     console.error(e);
-                    setAiBubble({ show: true, text: "Erro ao minerar. Verifique a ligação ou a chave da API.", type: 'error' }); 
+                    setAiBubble({ show: true, text: "Erro ao minerar. Por favor, tente novamente em alguns segundos.", type: 'error' }); 
                 } finally { 
                     setIsMining(false); 
                     setSearchSector(''); 
@@ -254,7 +249,7 @@
 
             const send = (p) => {
                 if (!selectedLead) return;
-                const msg = `*Lead EvoluaHunt*\n\n*Empresa:* ${selectedLead.empresa}\n*Decisor:* ${selectedLead.decisor}\n*Cargo:* ${selectedLead.cargo}\n*Contato:* ${selectedLead.contato || 'N/A'}\n*Email:* ${selectedLead.email || 'N/A'}\n*Gancho:* ${selectedLead.gancho}\n\nEnviado por Evolua Digital.`;
+                const msg = `*Lead EvoluaHunt*\n\n*Empresa:* ${selectedLead.empresa}\n*Decisor:* ${selectedLead.decisor}\n*Cargo:* ${selectedLead.cargo}\n*Contato:* ${selectedLead.contato || 'N/A'}\n*Email:* ${selectedLead.email || 'N/A'}\n*Gancho:* ${selectedLead.gancho}\n\nEnviado via Evolua Digital.`;
                 window.open(`https://wa.me/${p}?text=${encodeURIComponent(msg)}`, '_blank');
                 setShowSendModal(false);
             };
@@ -286,7 +281,7 @@
                         </div>
                         <nav className="space-y-1">
                             <button onClick={()=>setActiveTab('discovery')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab==='discovery'?'tab-active':'text-slate-500 hover:bg-white/5'}`}>
-                                <i data-lucide="search" className="w-5 h-5"></i> Radar
+                                <i data-lucide="search" className="w-5 h-5"></i> Radar de Leads
                             </button>
                             <button onClick={()=>setActiveTab('pipeline')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab==='pipeline'?'tab-active':'text-slate-500 hover:bg-white/5'}`}>
                                 <i data-lucide="bar-chart-3" className="w-5 h-5"></i> Pipeline
@@ -309,7 +304,7 @@
 
                     <main className="flex-1 md:ml-64 p-4 md:p-10">
                         <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-                            <div><h2 className="text-2xl font-bold text-white tracking-tight">Console EvoluaHunt</h2><p className="text-slate-500 text-sm">Seu radar inteligente de prospecção.</p></div>
+                            <div><h2 className="text-2xl font-bold text-white tracking-tight">Consola EvoluaHunt</h2><p className="text-slate-500 text-sm">Seu radar inteligente de prospecção.</p></div>
                             <div className="bg-[#0d1117] border border-white/5 px-6 py-3 rounded-2xl text-right shadow-xl">
                                 <p className="text-[10px] uppercase font-bold text-slate-500 tracking-widest">Share Estimado</p>
                                 <p className="text-lg font-bold text-indigo-400">R$ {(leads.filter(l=>l.score>85).length*3500).toLocaleString('pt-BR')}</p>
@@ -335,14 +330,14 @@
                                             <div className="flex flex-col xl:flex-row justify-between items-start gap-6">
                                                 <div className="flex-1 w-full">
                                                     <div className="flex items-center gap-3 mb-2">
-                                                        <h4 className="text-lg font-bold text-white">{l.empresa}</h4>
+                                                        <h4 className="text-lg font-bold text-white group-hover:text-indigo-400 transition-colors">{l.empresa}</h4>
                                                         <span className={`text-[9px] px-2 py-0.5 rounded border font-black uppercase ${l.status==='Enriquecido'?'border-indigo-500/30 text-indigo-400 bg-indigo-500/5':'border-white/10 text-slate-500'}`}>{l.status}</span>
                                                     </div>
                                                     <p className="text-[10px] text-slate-500 font-mono tracking-tighter uppercase mb-4">{l.cnae} • <span className="text-indigo-400 font-bold">{l.faturamento}</span></p>
                                                     
                                                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 p-4 bg-white/[0.02] rounded-2xl border border-white/5 text-sm">
                                                         <div>
-                                                            <p className="text-[9px] uppercase font-black opacity-60 tracking-widest mb-1">Decisor & Contato</p>
+                                                            <p className="text-[9px] uppercase font-black opacity-60 tracking-widest mb-1">Decisor & Contacto</p>
                                                             <p className="font-bold text-slate-200">{l.decisor || "Não validado"}</p>
                                                             {l.contato && <p className="text-indigo-400 text-[10px] mt-1 font-medium">{l.contato}</p>}
                                                             {l.email && <p className="text-slate-500 text-[10px] truncate">{l.email}</p>}
@@ -363,7 +358,7 @@
                                                     </div>
 
                                                     {l.gancho && (
-                                                        <div className="mt-4 flex gap-3 bg-indigo-500/[0.03] p-4 rounded-2xl border border-indigo-500/10 italic text-xs text-slate-400 leading-relaxed">
+                                                        <div className="mt-4 flex gap-3 bg-indigo-500/[0.03] p-4 rounded-2xl border border-indigo-500/10 italic text-xs md:text-sm text-slate-400 leading-relaxed">
                                                             <i data-lucide="bot" className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5"></i>
                                                             "{l.gancho}"
                                                         </div>
@@ -426,23 +421,34 @@
                                     <button onClick={() => setAiBubble({ ...aiBubble, show: false })} className="absolute top-3 right-3 text-slate-600 hover:text-white transition-colors"><i data-lucide="x" className="w-3 h-3"></i></button>
                                     <div className="flex items-center gap-2 mb-3 text-indigo-400 font-black text-[10px] uppercase tracking-widest"><i data-lucide="sparkles" className="w-3 h-3"></i> Lumina Insight</div>
                                     <p className="text-xs text-white leading-relaxed mb-4">{aiBubble.text}</p>
-                                    <div className="flex gap-2">
-                                        <button 
-                                            onClick={() => {
-                                                setAiBubble({...aiBubble, show: false});
-                                                startMining('Logística e Armazéns');
-                                            }} 
-                                            className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] py-2 rounded-lg font-bold shadow-lg transition-all"
-                                        >
-                                            Sim, bora!
-                                        </button>
-                                        <button onClick={()=>setAiBubble({show:false})} className="flex-1 bg-white/5 text-slate-400 text-[10px] py-2 rounded-lg font-bold">Agora não</button>
-                                    </div>
+                                    
+                                    {/* UI FIX: Verifica explicitamente o tipo 'question' para mostrar botões */}
+                                    {aiBubble.type === 'question' && (
+                                        <div className="flex gap-2">
+                                            <button 
+                                                onClick={() => startMining('Logística e Armazéns')} 
+                                                className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] py-2 rounded-lg font-bold shadow-lg transition-all"
+                                            >
+                                                Sim, vamos!
+                                            </button>
+                                            <button onClick={()=>setAiBubble({show:false})} className="flex-1 bg-white/5 text-slate-400 text-[10px] py-2 rounded-lg font-bold">Agora não</button>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}
                         <button 
-                            onClick={()=>setAiBubble({show:true, text: "Detetei que o setor de Logística está com score de fechamento alto no Safra. Quer minerar agora?"})} 
+                            onClick={()=> {
+                                if (aiBubble.show) {
+                                    setAiBubble({ show: false, text: "", type: 'info' });
+                                } else {
+                                    setAiBubble({
+                                        show:true, 
+                                        text: "Detetei que o setor de Logística está com score de fechamento alto no Safra. Quer minerar agora?",
+                                        type: 'question'
+                                    });
+                                }
+                            }} 
                             className="w-14 h-14 bg-indigo-600 rounded-full flex items-center justify-center text-white shadow-[0_0_20px_rgba(79,70,229,0.3)] active:scale-90 transition-all ring-4 ring-white/5 group"
                         >
                             <i data-lucide="bot" className="w-7 h-7 group-hover:rotate-12 transition-transform"></i>
