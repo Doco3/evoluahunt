@@ -57,7 +57,7 @@
         const { useState, useEffect } = React;
 
         // ==========================================================
-        // 🚀 CONFIGURAÇÃO ATUALIZADA (BRASIL) 🚀
+        // 🚀 CONFIGURAÇÃO PARA VERCEL (OBRIGATÓRIO) 🚀
         // ==========================================================
         const VERCEL_GEMINI_KEY = "AIzaSyDPzPjyijRbzFswEd9vrVub7tpUlJTrYEE"; 
         const VERCEL_FIREBASE_CONFIG = {
@@ -75,16 +75,15 @@
             let config = null;
             let gKey = VERCEL_GEMINI_KEY;
             let aId = 'evolua-hunt-standalone';
-            let isInternal = false;
             try {
                 if (typeof __firebase_config !== 'undefined') config = JSON.parse(__firebase_config);
-                if (typeof apiKey !== 'undefined' && apiKey !== "") { gKey = apiKey; isInternal = true; }
+                if (typeof apiKey !== 'undefined' && apiKey !== "") gKey = apiKey;
                 if (typeof __app_id !== 'undefined') aId = __app_id;
             } catch (e) {}
-            return { config: config || VERCEL_FIREBASE_CONFIG, gKey, aId, isInternal };
+            return { config: config || VERCEL_FIREBASE_CONFIG, gKey, aId };
         };
 
-        const { config, gKey, aId, isInternal } = getKeys();
+        const { config, gKey, aId } = getKeys();
 
         const App = () => {
             const [user, setUser] = useState(null);
@@ -108,14 +107,14 @@
             useEffect(() => {
                 const l = document.getElementById('loader');
                 if (l) l.style.display = 'none';
-                if (!config) { setError("Erro no Firebase!"); return; }
+                if (!config) { setError("Erro de configuração do Firebase!"); return; }
                 if (!firebase.apps.length) firebase.initializeApp(config);
                 const init = async () => {
                     try {
                         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                             await firebase.auth().signInWithCustomToken(__initial_auth_token);
                         } else { await firebase.auth().signInAnonymously(); }
-                    } catch (e) { console.error(e); }
+                    } catch (e) { console.error("Auth Error:", e); }
                 };
                 init();
                 return firebase.auth().onAuthStateChanged(setUser);
@@ -129,12 +128,15 @@
                     const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                     setLeads(data.sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)));
                     setLoading(false);
+                }, (err) => {
+                    console.error("Firestore error:", err);
+                    setLoading(false);
                 });
             }, [user]);
 
             const callGemini = async (prompt, search = false) => {
-                const modelId = isInternal ? "gemini-2.5-flash-preview-09-2025" : "gemini-1.5-flash";
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${gKey}`;
+                // Usando o modelo flash padrão para evitar erros 404 em chaves públicas
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${gKey}`;
                 const payload = {
                     contents: [{ parts: [{ text: prompt }] }],
                     generationConfig: { responseMimeType: "application/json" },
@@ -143,14 +145,20 @@
 
                 for (let i = 0; i < 3; i++) {
                     try {
-                        const res = await fetch(url, { method: 'POST', body: JSON.stringify(payload) });
-                        if (!res.ok) throw new Error(res.status);
+                        const res = await fetch(url, { 
+                            method: 'POST', 
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload) 
+                        });
+                        if (!res.ok) throw new Error(`Status: ${res.status}`);
                         const data = await res.json();
                         let text = data.candidates[0].content.parts[0].text;
-                        return JSON.parse(text.replace(/```json/g, "").replace(/```/g, "").trim());
+                        // Limpeza de Markdown JSON
+                        const jsonStr = text.replace(/```json/g, "").replace(/```/g, "").trim();
+                        return JSON.parse(jsonStr);
                     } catch (e) {
                         if (i === 2) throw e;
-                        await new Promise(r => setTimeout(r, 1500));
+                        await new Promise(r => setTimeout(r, 2000));
                     }
                 }
             };
@@ -159,22 +167,24 @@
                 const target = forced || searchSector;
                 if (!user || !target) return;
                 setIsMining(true);
-                setAiBubble({ show: true, text: `Rastreando empresas de ${target} no Brasil...`, type: 'info' });
+                setAiBubble({ show: true, text: `Rastreando empresas de ${target} no Google...`, type: 'info' });
                 try {
-                    const prompt = `Atue como prospecção B2B de elite. Use Google Search e encontre 8 empresas REAIS de "${target}" no Brasil com faturamento > R$ 10M. Retorne array JSON: "empresa", "cnae", "faturamento", "status": "Novo", "score": (0-100). Responda em PT-BR.`;
+                    const prompt = `Atue como prospecção B2B de elite. Use Google Search e encontre 8 empresas REAIS e ativas do setor de "${target}" no Brasil com faturamento estimado acima de R$ 10M. Retorne um array JSON com: "empresa", "cnae", "faturamento", "status": "Novo", "score": (0-100). Responda em PT-BR.`;
                     const results = await callGemini(prompt, true);
                     const ref = firebase.firestore().collection('artifacts').doc(aId).collection('public').doc('data').collection('leads');
                     for (const l of results) await ref.add({ ...l, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
-                    setAiBubble({ show: true, text: `Boa! Adicionei os leads de ${target}.`, type: 'success' });
-                } catch (e) { setAiBubble({ show: true, text: "Erro ao minerar. Tente de novo!", type: 'error' }); }
-                finally { setIsMining(false); setSearchSector(''); }
+                    setAiBubble({ show: true, text: `Boa! Joguei os leads de ${target} no radar.`, type: 'success' });
+                } catch (e) { 
+                    console.error(e);
+                    setAiBubble({ show: true, text: "Erro ao minerar. Tente de novo em instantes!", type: 'error' }); 
+                } finally { setIsMining(false); setSearchSector(''); }
             };
 
             const validate = async (id, name) => {
                 if (!user) return;
                 setIsProcessing(true);
                 try {
-                    const prompt = `Analise a empresa "${name}" no Brasil via Google Search. Identifique o decisor (CEO/CFO/Diretor Financeiro). Retorne JSON: "decisor" (nome real), "cargo", "email" (e-mail corporativo ou padrão provável), "gancho" (abordagem estratégica para o Banco Safra), "score" (0-100). Responda em PT-BR.`;
+                    const prompt = `Analise a empresa "${name}" no Brasil via Google Search. Identifique o decisor (CEO/CFO/Diretor Financeiro). Retorne JSON: "decisor" (nome real), "cargo", "email" (corporativo real ou padrão provável), "gancho" (abordagem estratégica para o Banco Safra), "score" (0-100). Responda em Português do Brasil.`;
                     const data = await callGemini(prompt, true);
                     await firebase.firestore().collection('artifacts').doc(aId).collection('public').doc('data').collection('leads').doc(id).update({ ...data, status: 'Enriquecido' });
                 } catch (e) { console.error(e); } finally { setIsProcessing(false); }
@@ -188,6 +198,8 @@
 
             useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [leads, activeTab, showSendModal, aiBubble]);
 
+            if (error) return <div className="min-h-screen flex items-center justify-center text-red-500">{error}</div>;
+
             return (
                 <div className="min-h-screen pb-24 md:pb-0 flex flex-col md:flex-row overflow-x-hidden">
                     <aside className="fixed left-0 top-0 h-full w-64 bg-[#0d1117] border-r border-white/5 p-6 z-20 hidden md:flex flex-col shadow-2xl">
@@ -200,8 +212,8 @@
                             <button onClick={()=>setActiveTab('pipeline')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab==='pipeline'?'tab-active':'text-slate-500 hover:bg-white/5'}`}><i data-lucide="bar-chart-3" className="w-5 h-5"></i> Pipeline</button>
                         </nav>
                         <div className="mt-auto bg-indigo-500/5 p-4 rounded-2xl border border-indigo-500/10">
-                            <div className="flex items-center gap-2 mb-1"><div className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse"></div><span className="text-[10px] uppercase font-bold text-indigo-400">Lumina 2.5 Active</span></div>
-                            <p className="text-[10px] text-slate-500 italic">Pronta pra minerar, mano!</p>
+                            <div className="flex items-center gap-2 mb-1"><div className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse"></div><span className="text-[10px] uppercase font-bold text-indigo-400">Lumina Core 1.5</span></div>
+                            <p className="text-[10px] text-slate-500 italic">IA conectada e pronta pra rodar!</p>
                         </div>
                     </aside>
 
@@ -212,7 +224,7 @@
 
                     <main className="flex-1 md:ml-64 p-4 md:p-10">
                         <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-                            <div><h2 className="text-2xl font-bold text-white tracking-tight">Console EvoluaHunt</h2><p className="text-slate-500 text-sm italic">Seu radar inteligente de prospecção B2B.</p></div>
+                            <div><h2 className="text-2xl font-bold text-white tracking-tight">Console EvoluaHunt</h2><p className="text-slate-500 text-sm italic">Seu radar inteligente B2B.</p></div>
                             <div className="bg-[#0d1117] border border-white/5 px-6 py-3 rounded-2xl text-right shadow-xl"><p className="text-[10px] uppercase font-bold text-slate-500">Forecast Share</p><p className="text-lg font-bold text-indigo-400">R$ {(leads.filter(l=>l.score>85).length*3500).toLocaleString('pt-BR')}</p></div>
                         </header>
 
@@ -236,9 +248,9 @@
                                                     <div className="flex items-center gap-3 mb-2"><h4 className="text-lg font-bold text-white">{l.empresa}</h4><span className={`text-[9px] px-2 py-0.5 rounded border font-black uppercase ${l.status==='Enriquecido'?'border-indigo-500/30 text-indigo-400 bg-indigo-500/5':'border-white/10 text-slate-500'}`}>{l.status}</span></div>
                                                     <p className="text-[10px] text-slate-500 font-mono tracking-tighter uppercase mb-4">{l.cnae} • <span className="text-indigo-400 font-bold">{l.faturamento}</span></p>
                                                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 p-4 bg-white/[0.02] rounded-2xl border border-white/5 text-sm">
-                                                        <div><p className="text-[9px] uppercase font-black opacity-60 tracking-widest mb-1">Decisor & E-mail</p><p className="font-bold text-slate-200">{l.decisor || "Pendente"}</p>
+                                                        <div><p className="text-[9px] uppercase font-black opacity-60 tracking-widest mb-1">Decisor & E-mail</p><p className="font-bold text-slate-200 leading-tight">{l.decisor || "Pendente"}</p>
                                                             {l.email && <p className="text-indigo-400 text-[10px] mt-1 truncate"><i data-lucide="mail" className="inline w-3 h-3"></i> {l.email}</p>}</div>
-                                                        <div className="hidden sm:block"><p className="text-[9px] uppercase font-black opacity-60 tracking-widest mb-1">Match Score</p><div className="flex items-center gap-2"><span className="font-mono text-white">{l.score}%</span><div className="h-1.5 flex-1 bg-white/10 rounded-full overflow-hidden max-w-[80px]"><div className="h-full bg-indigo-500 shadow-[0_0_8px_indigo]" style={{width:`${l.score}%`}}></div></div></div></div>
+                                                        <div className="hidden sm:block"><p className="text-[9px] uppercase font-black opacity-60 tracking-widest mb-1">Score Match</p><div className="flex items-center gap-2"><span className="font-mono text-white">{l.score}%</span><div className="h-1.5 flex-1 bg-white/10 rounded-full overflow-hidden max-w-[80px]"><div className="h-full bg-indigo-500 shadow-[0_0_8px_indigo]" style={{width:`${l.score}%`}}></div></div></div></div>
                                                     </div>
                                                     {l.gancho && <div className="mt-4 flex gap-3 bg-indigo-500/[0.03] p-4 rounded-2xl border border-indigo-500/10 italic text-xs md:text-sm text-slate-400 leading-relaxed"><i data-lucide="bot" className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5"></i>"{l.gancho}"</div>}
                                                 </div>
@@ -253,20 +265,20 @@
                                 </div>
                             </div>
                         )}
-                        {activeTab !== 'discovery' && <div className="py-40 text-center opacity-10 uppercase italic font-black text-2xl tracking-tighter">Em Desenvolvimento</div>}
+                        {activeTab !== 'discovery' && <div className="py-40 text-center opacity-10 uppercase italic font-bold">Módulo em Construção</div>}
                     </main>
 
                     {showSendModal && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
                             <div className="bg-[#11141b] border border-white/10 w-full max-w-sm rounded-3xl p-8 shadow-2xl animate-in zoom-in duration-300">
-                                <h2 className="text-xl font-bold tracking-tight text-white mb-6">Enviar para:</h2>
+                                <h2 className="text-xl font-bold tracking-tight text-white mb-6 text-center">Enviar para:</h2>
                                 <div className="space-y-3">
                                     {contacts.map((c, i) => (
                                         <button key={i} onClick={()=>send(c.phone)} className="w-full bg-white/5 hover:bg-indigo-600 text-white p-4 rounded-2xl flex items-center justify-between font-bold group transition-all">
                                             <div className="flex items-center gap-3"><i data-lucide="message-square" className="w-4 h-4 text-indigo-400 group-hover:text-white"></i>{c.name}</div><i data-lucide="chevron-right" className="w-4 h-4 group-hover:translate-x-1 transition-all"></i>
                                         </button>
                                     ))}
-                                    <button onClick={()=>setShowSendModal(false)} className="w-full text-slate-500 text-sm mt-4">Cancelar</button>
+                                    <button onClick={()=>setShowSendModal(false)} className="w-full text-slate-500 text-sm mt-4 text-center">Cancelar</button>
                                 </div>
                             </div>
                         </div>
@@ -275,13 +287,15 @@
                     <div className="fixed bottom-24 md:bottom-10 right-6 z-40">
                         {aiBubble.show && (
                             <div className="absolute bottom-full right-0 mb-4 w-72 p-5 bg-[#0d1117] border border-indigo-500/30 rounded-2xl shadow-2xl animate-in slide-in-from-bottom-2">
-                                <button onClick={() => setAiBubble({ ...aiBubble, show: false })} className="absolute top-3 right-3 text-slate-600 hover:text-white transition-colors"><i data-lucide="x" className="w-3 h-3"></i></button>
+                                <button onClick={() => setAiBubble({ ...aiBubble, show: false })} className="absolute top-3 right-3 text-slate-600 hover:text-white"><i data-lucide="x" className="w-3 h-3"></i></button>
                                 <div className="flex items-center gap-2 mb-3 text-indigo-400 font-black text-[10px] uppercase tracking-widest"><i data-lucide="sparkles" className="w-3 h-3"></i> Lumina Insight</div>
                                 <p className="text-xs text-white leading-relaxed mb-4">{aiBubble.text}</p>
-                                <div className="flex gap-2">
-                                    <button onClick={() => { setAiBubble({show:false}); startMining('Logística e Armazéns'); }} className="flex-1 bg-indigo-600 text-white text-[10px] py-2 rounded-lg font-bold shadow-lg transition-all">Sim, bora!</button>
-                                    <button onClick={()=>setAiBubble({show:false})} className="flex-1 bg-white/5 text-slate-400 text-[10px] py-2 rounded-lg font-bold">Agora não</button>
-                                </div>
+                                {!isMining && aiBubble.text.includes("Quer minerar") && (
+                                    <div className="flex gap-2">
+                                        <button onClick={() => { setAiBubble({show:false}); startMining('Logística e Armazéns'); }} className="flex-1 bg-indigo-600 text-white text-[10px] py-2 rounded-lg font-bold shadow-lg transition-all">Sim, bora!</button>
+                                        <button onClick={()=>setAiBubble({show:false})} className="flex-1 bg-white/5 text-slate-400 text-[10px] py-2 rounded-lg font-bold">Agora não</button>
+                                    </div>
+                                )}
                             </div>
                         )}
                         <button onClick={()=>setAiBubble({show:true, text: "Vi que o setor de Logística tá bombando no Safra essa semana. Quer minerar leads agora?"})} className="w-14 h-14 bg-indigo-600 rounded-full flex items-center justify-center text-white shadow-[0_0_20px_rgba(79,70,229,0.3)] active:scale-90 transition-all ring-4 ring-white/5 group"><i data-lucide="bot" className="w-7 h-7 group-hover:rotate-12 transition-all"></i></button>
