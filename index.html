@@ -12,35 +12,85 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
-    <!-- Firebase -->
+    <!-- Firebase (Compat para facilidade de arquivo único) -->
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #080a0f; }
-        .glass-panel { background: rgba(13, 17, 23, 0.8); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); }
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #312e81; border-radius: 10px; }
+        
+        body { 
+            font-family: 'Plus Jakarta Sans', sans-serif; 
+            background-color: #080a0f; 
+            color: #cbd5e1;
+            margin: 0;
+        }
+
+        .glass-panel { 
+            background: rgba(13, 17, 23, 0.8); 
+            backdrop-filter: blur(12px); 
+            border: 1px solid rgba(255, 255, 255, 0.05); 
+        }
+
+        #loader { 
+            position: fixed; inset: 0; 
+            display: flex; align-items: center; justify-content: center; 
+            background: #080a0f; z-index: 9999; 
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .spinner {
+            width: 40px; height: 40px; 
+            border: 3px solid #1e1b4b; border-top-color: #6366f1; 
+            border-radius: 50%; animation: spin 1s linear infinite;
+        }
+        
+        .tab-active { background: #4f46e5; color: white; font-weight: bold; box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.4); }
     </style>
 </head>
 <body>
+    <div id="loader"><div class="spinner"></div></div>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+        const { useState, useEffect } = React;
 
-        // --- CONFIGURAÇÃO GLOBAL ---
-        const apiKey = ""; // Injetada pelo ambiente
+        // ==========================================================
+        // 🚀 CONFIGURAÇÃO PARA VERCEL (OBRIGATÓRIO PREENCHER) 🚀
+        // ==========================================================
+        
+        // 1. Sua API Key do Gemini (Pegue em: aistudio.google.com)
+        const VERCEL_GEMINI_KEY = "AIzaSyDPzPjyijRbzFswEd9vrVub7tpUlJTrYEE"; 
 
-        // --- FIREBASE SETUP ---
-        const firebaseConfig = JSON.parse(__firebase_config);
-        firebase.initializeApp(firebaseConfig);
-        const auth = firebase.auth();
-        const db = firebase.firestore();
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'evolua-hunt-v1';
+        // 2. Seu objeto Firebase (Pegue no Console do Firebase)
+        const firebaseConfig = {
+  apiKey: "AIzaSyCvyPlMgdZMO_vDLFDzxGqnFTlvgVRypnY",
+  authDomain: "evoluahunt.firebaseapp.com",
+  projectId: "evoluahunt",
+  storageBucket: "evoluahunt.firebasestorage.app",
+  messagingSenderId: "271300824744",
+  appId: "1:271300824744:web:4e96ef33a34f1823627c9d",
+  measurementId: "G-LGQ4B35WFB"
+};
+
+        // ==========================================================
+
+        const getKeys = () => {
+            let config = null;
+            let gKey = VERCEL_GEMINI_KEY;
+            let aId = 'evolua-hunt-standalone';
+
+            try {
+                if (typeof __firebase_config !== 'undefined') config = JSON.parse(__firebase_config);
+                if (typeof apiKey !== 'undefined' && apiKey !== "") gKey = apiKey;
+                if (typeof __app_id !== 'undefined') aId = __app_id;
+            } catch (e) {}
+
+            return { config: config || VERCEL_FIREBASE_CONFIG, gKey, aId };
+        };
+
+        const { config, gKey, aId } = getKeys();
 
         const App = () => {
             const [user, setUser] = useState(null);
@@ -52,14 +102,8 @@
             const [showSendModal, setShowSendModal] = useState(false);
             const [selectedLead, setSelectedLead] = useState(null);
             const [searchSector, setSearchSector] = useState('');
-            
-            // Estado da Lumina
-            const [aiBubble, setAiBubble] = useState({
-                show: false,
-                text: "Olá! Sou a Lumina. Vamos minerar uns leads qualificados hoje?",
-                type: 'info',
-                action: null
-            });
+            const [error, setError] = useState(null);
+            const [aiBubble, setAiBubble] = useState({ show: false, text: "", type: 'info', action: null });
 
             const contacts = [
                 { name: 'Doco', phone: '5511989510868' },
@@ -67,311 +111,216 @@
                 { name: 'Rafael (Safra)', phone: '5511988888888' }
             ];
 
-            // --- AUTH ---
             useEffect(() => {
-                const initAuth = async () => {
+                const l = document.getElementById('loader');
+                if (l) l.style.display = 'none';
+
+                if (!config) {
+                    setError("Configuração do Firebase ausente! Abra o index.html e cole seu objeto firebaseConfig na linha 50.");
+                    setLoading(false);
+                    return;
+                }
+
+                if (!firebase.apps.length) firebase.initializeApp(config);
+
+                const init = async () => {
                     try {
                         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                            await auth.signInWithCustomToken(__initial_auth_token);
+                            await firebase.auth().signInWithCustomToken(__initial_auth_token);
                         } else {
-                            await auth.signInAnonymously();
+                            await firebase.auth().signInAnonymously();
                         }
-                    } catch (err) { console.error("Erro Auth:", err); }
+                    } catch (err) { console.error(err); }
                 };
-                initAuth();
-                const unsubscribe = auth.onAuthStateChanged(setUser);
-                return () => unsubscribe();
+                init();
+                return firebase.auth().onAuthStateChanged(setUser);
             }, []);
 
-            // --- SYNC ---
             useEffect(() => {
-                if (!user) return;
+                if (!user || !config) return;
                 setLoading(true);
-                const leadsRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('leads');
-                const unsubscribe = leadsRef.onSnapshot((snapshot) => {
-                    const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    setLeads(list.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)));
+                const ref = firebase.firestore().collection('artifacts').doc(aId).collection('public').doc('data').collection('leads');
+                return ref.onSnapshot(snap => {
+                    const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setLeads(data.sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)));
                     setLoading(false);
-                }, (error) => { console.error("Erro Firestore:", error); setLoading(false); });
-                return () => unsubscribe();
+                });
             }, [user]);
 
-            // --- API GEMINI (FIX 401) ---
-            const callLumina = async (prompt, useSearch = false) => {
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
-                
+            const callGemini = async (prompt, search = false) => {
+                if (!gKey || gKey === "COLE_SUA_CHAVE_AQUI") {
+                    alert("Gemini Key não configurada na linha 46!");
+                    return null;
+                }
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${gKey}`;
                 const payload = {
                     contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: { responseMimeType: "application/json" }
+                    generationConfig: { responseMimeType: "application/json" },
+                    ...(search && { tools: [{ "google_search": {} }] })
                 };
 
-                if (useSearch) {
-                    payload.tools = [{ "google_search": {} }];
-                }
-
-                let delay = 1000;
                 for (let i = 0; i < 5; i++) {
                     try {
-                        const response = await fetch(url, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(payload)
-                        });
-
-                        if (!response.ok) {
-                            if (response.status === 401) throw new Error("401");
-                            throw new Error(`HTTP ${response.status}`);
-                        }
-
-                        const data = await response.json();
-                        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-                        return JSON.parse(text);
+                        const res = await fetch(url, { method: 'POST', body: JSON.stringify(payload) });
+                        if (!res.ok) throw new Error(res.status);
+                        const data = await res.json();
+                        return JSON.parse(data.candidates[0].content.parts[0].text);
                     } catch (e) {
                         if (i === 4) throw e;
-                        await new Promise(res => setTimeout(res, delay));
-                        delay *= 2;
+                        await new Promise(r => setTimeout(r, Math.pow(2, i) * 1000));
                     }
                 }
             };
 
-            const startMining = async (sector) => {
-                const target = sector || searchSector;
+            const startMining = async (s) => {
+                const target = s || searchSector;
                 if (!user || !target) return;
-                
                 setIsMining(true);
-                setAiBubble({ show: true, text: `Lumina rastreando empresas de ${target} no Google...`, type: 'info', action: null });
-
+                setAiBubble({ show: true, text: `Rastreando empresas de ${target} no Google...`, type: 'info' });
                 try {
-                    const prompt = `Atue como um especialista em prospecção B2B de elite no Brasil. Use o Google Search para encontrar 8 a 10 empresas REAIS e ativas no Brasil do setor de "${target}". Foque em faturamento acima de R$ 10 milhões. Retorne um array JSON com: "empresa", "cnae", "faturamento", "status": "Novo", "score": (0-100). Responda em Português do Brasil.`;
-
-                    const results = await callLumina(prompt, true);
-
-                    const leadsRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('leads');
-                    for (const lead of results) {
-                        await leadsRef.add({
-                            ...lead,
-                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                        });
-                    }
-                    setAiBubble({ show: true, text: `Encontrei ${results.length} empresas de ${target}. Elas já estão no radar!`, type: 'success', action: null });
-                } catch (e) {
-                    setAiBubble({ show: true, text: "Erro de autorização (401). Tente de novo em instantes.", type: 'error', action: null });
-                } finally {
-                    setIsMining(false);
-                    setSearchSector('');
-                }
+                    const prompt = `Atue como prospecção B2B de elite no Brasil. Use Google Search e encontre 8 empresas REAIS de "${target}" com faturamento > R$ 10M. Retorne array JSON: "empresa", "cnae", "faturamento", "status": "Novo", "score": (0-100). PT-BR.`;
+                    const results = await callGemini(prompt, true);
+                    const ref = firebase.firestore().collection('artifacts').doc(aId).collection('public').doc('data').collection('leads');
+                    for (const l of results) await ref.add({ ...l, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+                    setAiBubble({ show: true, text: `Sucesso! Adicionei ${results.length} leads.`, type: 'success' });
+                } catch (e) { setAiBubble({ show: true, text: "Erro na API. Verifique a chave.", type: 'error' }); }
+                finally { setIsMining(false); setSearchSector(''); }
             };
 
-            const validateLead = async (leadId, companyName) => {
+            const validate = async (id, name) => {
                 if (!user) return;
                 setIsProcessing(true);
                 try {
-                    const prompt = `Analise a empresa brasileira "${companyName}" via Google Search. Retorne um JSON com: "decisor" (nome do CEO/CFO real), "cargo", "contato" (telefone corporativo), "email" (e-mail provável), "gancho" (abordagem matadora Banco Safra), "score" (0-100). Responda em Português do Brasil.`;
-                    
-                    const aiData = await callLumina(prompt, true);
-                    const leadRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('leads').doc(leadId);
-                    await leadRef.update({ ...aiData, status: 'Enriquecido', updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+                    const prompt = `Analise a empresa "${name}" via Google Search. Retorne JSON: "decisor" (nome CEO/CFO), "cargo", "contato" (telefone), "email", "gancho" (abordagem Banco Safra), "score" (0-100). PT-BR.`;
+                    const data = await callGemini(prompt, true);
+                    await firebase.firestore().collection('artifacts').doc(aId).collection('public').doc('data').collection('leads').doc(id).update({ ...data, status: 'Enriquecido' });
                 } catch (e) { console.error(e); } finally { setIsProcessing(false); }
             };
 
-            const deleteLead = async (id) => {
-                const leadRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('leads').doc(id);
-                await leadRef.delete();
-            };
-
-            const sendWhatsApp = (phone) => {
-                const msg = `Fala! Lead minerado pela EvoluaHunt:\n\n*Empresa:* ${selectedLead.empresa}\n*Decisor:* ${selectedLead.decisor}\n*Contato:* ${selectedLead.contato || 'N/A'}\n*Email:* ${selectedLead.email || 'N/A'}\n*Gancho:* ${selectedLead.gancho}\n\nBora fechar?`;
-                window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+            const send = (p) => {
+                const msg = `Lead EvoluaHunt:\n\n*Empresa:* ${selectedLead.empresa}\n*Decisor:* ${selectedLead.decisor}\n*Contato:* ${selectedLead.contato || 'N/A'}\n*Gancho:* ${selectedLead.gancho}\n\nBora fechar?`;
+                window.open(`https://wa.me/${p}?text=${encodeURIComponent(msg)}`, '_blank');
                 setShowSendModal(false);
             };
 
+            useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [leads, activeTab, showSendModal, aiBubble]);
+
+            if (error) return (
+                <div className="min-h-screen flex items-center justify-center p-6 text-center">
+                    <div className="glass-panel p-8 rounded-3xl max-w-md border-red-500/20">
+                        <i data-lucide="alert-circle" className="w-12 h-12 text-red-500 mx-auto mb-4"></i>
+                        <h2 className="text-xl font-bold text-white mb-2">Configuração Pendente</h2>
+                        <p className="text-slate-400 text-sm mb-6">{error}</p>
+                    </div>
+                </div>
+            );
+
             return (
-                <div className="min-h-screen pb-24 md:pb-0 text-slate-300">
-                    
-                    {/* SIDEBAR (Desktop) */}
+                <div className="min-h-screen pb-24 md:pb-0 flex flex-col md:flex-row">
+                    {/* SIDEBAR */}
                     <aside className="fixed left-0 top-0 h-full w-64 bg-[#0d1117] border-r border-white/5 p-6 z-20 hidden md:flex flex-col shadow-2xl">
                         <div className="flex items-center gap-3 mb-12">
-                            <div className="w-12 h-12 rounded-2xl overflow-hidden bg-white/5 border border-white/10 p-1">
-                                <img src="https://imgur.com/W0gDq47.png" alt="Evolua" className="w-full h-full object-contain" />
-                            </div>
+                            <img src="https://imgur.com/W0gDq47.png" className="w-12 h-12 rounded-xl object-contain bg-white/5 p-1" />
                             <div>
                                 <h1 className="text-xl font-bold text-white tracking-tight">Evolua<span className="text-indigo-400">Hunt</span></h1>
-                                <p className="text-[9px] text-slate-500 mt-1 uppercase font-bold tracking-widest">Inteligência Comercial</p>
+                                <p className="text-[9px] text-slate-500 uppercase font-bold">Smart Prospecting</p>
                             </div>
                         </div>
-
                         <nav className="space-y-1">
-                            <button onClick={() => setActiveTab('discovery')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'discovery' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-500 hover:bg-white/5'}`}>
-                                <i data-lucide="search" className="w-5 h-5"></i> Radar de Leads
+                            <button onClick={()=>setActiveTab('discovery')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab==='discovery'?'tab-active':'text-slate-500 hover:bg-white/5'}`}>
+                                <i data-lucide="search" className="w-5 h-5"></i> Radar
                             </button>
-                            <button onClick={() => setActiveTab('pipeline')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'pipeline' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-500 hover:bg-white/5'}`}>
+                            <button onClick={()=>setActiveTab('pipeline')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab==='pipeline'?'tab-active':'text-slate-500 hover:bg-white/5'}`}>
                                 <i data-lucide="bar-chart-3" className="w-5 h-5"></i> Pipeline
-                            </button>
-                            <button onClick={() => setActiveTab('wallet')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'wallet' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-500 hover:bg-white/5'}`}>
-                                <i data-lucide="dollar-sign" className="w-5 h-5"></i> Comissões
                             </button>
                         </nav>
                     </aside>
 
-                    {/* BOTTOM NAV (Mobile) */}
+                    {/* MOBILE NAV */}
                     <nav className="fixed bottom-0 left-0 right-0 glass-panel border-t border-white/5 p-2 flex justify-around md:hidden z-50">
-                        <button onClick={() => setActiveTab('discovery')} className={`flex flex-col items-center gap-1 p-2 ${activeTab === 'discovery' ? 'text-indigo-400' : 'text-slate-500'}`}>
-                            <i data-lucide="search" className="w-5 h-5"></i>
-                            <span className="text-[10px] font-bold uppercase">Radar</span>
-                        </button>
-                        <button onClick={() => setActiveTab('pipeline')} className={`flex flex-col items-center gap-1 p-2 ${activeTab === 'pipeline' ? 'text-indigo-400' : 'text-slate-500'}`}>
-                            <i data-lucide="bar-chart-3" className="w-5 h-5"></i>
-                            <span className="text-[10px] font-bold uppercase">Pipeline</span>
-                        </button>
-                        <button onClick={() => setActiveTab('wallet')} className={`flex flex-col items-center gap-1 p-2 ${activeTab === 'wallet' ? 'text-indigo-400' : 'text-slate-500'}`}>
-                            <i data-lucide="dollar-sign" className="w-5 h-5"></i>
-                            <span className="text-[10px] font-bold uppercase">Carteira</span>
-                        </button>
+                        <button onClick={()=>setActiveTab('discovery')} className={`flex flex-col items-center p-2 ${activeTab==='discovery'?'text-indigo-400':'text-slate-500'}`}><i data-lucide="search" className="w-6 h-6"></i><span className="text-[10px]">Radar</span></button>
+                        <button onClick={()=>setActiveTab('pipeline')} className={`flex flex-col items-center p-2 ${activeTab==='pipeline'?'text-indigo-400':'text-slate-500'}`}><i data-lucide="bar-chart-3" className="w-6 h-6"></i><span className="text-[10px]">Pipeline</span></button>
                     </nav>
 
-                    <main className="md:ml-64 p-4 md:p-10">
+                    <main className="flex-1 md:ml-64 p-4 md:p-10">
                         <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-                            <div>
-                                <h2 className="text-xl md:text-2xl font-bold text-white tracking-tight">Console EvoluaHunt</h2>
-                                <p className="text-slate-500 text-xs italic">Sua vantagem competitiva mobile.</p>
-                            </div>
-                            <div className="bg-[#0d1117] border border-white/5 px-6 py-3 rounded-2xl text-right shadow-xl">
-                                <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Share Estimado</p>
-                                <p className="text-lg font-bold text-indigo-400">R$ {(leads.filter(l => l.score > 85).length * 3500).toLocaleString('pt-BR')}</p>
-                            </div>
+                            <div><h2 className="text-2xl font-bold text-white">Console EvoluaHunt</h2><p className="text-slate-500 text-sm">Seu radar inteligente B2B.</p></div>
+                            <div className="bg-[#0d1117] border border-white/5 px-6 py-3 rounded-2xl text-right shadow-xl"><p className="text-[10px] uppercase font-bold text-slate-500">Forecast Share</p><p className="text-lg font-bold text-indigo-400">R$ {(leads.filter(l=>l.score>85).length*3500).toLocaleString('pt-BR')}</p></div>
                         </header>
 
                         {activeTab === 'discovery' && (
                             <div className="space-y-6">
-                                {/* Mining Area */}
-                                <section className="bg-[#11141b] p-6 md:p-8 rounded-3xl border border-white/5 shadow-2xl relative overflow-hidden group">
-                                    <div className="flex items-center gap-2 mb-4 text-indigo-400 uppercase text-[10px] font-black tracking-widest">
-                                        <i data-lucide="sparkles" className="w-3 h-3 group-hover:animate-pulse"></i> Mineração de Mercado
-                                    </div>
+                                <section className="bg-[#11141b] p-6 rounded-3xl border border-white/5 shadow-2xl relative overflow-hidden group">
+                                    <div className="flex items-center gap-2 mb-4 text-indigo-400 uppercase text-[10px] font-black tracking-widest relative z-10"><i data-lucide="sparkles" className="w-3 h-3 group-hover:animate-pulse"></i> Mineração Profunda</div>
                                     <div className="flex flex-col md:flex-row gap-4 relative z-10">
-                                        <input type="text" value={searchSector} onChange={(e) => setSearchSector(e.target.value)} placeholder="Ex: Logística, Agronegócio..." className="flex-1 bg-[#080a0f] border border-white/10 rounded-2xl px-5 py-4 text-white outline-none focus:border-indigo-500 text-sm md:text-base" />
-                                        <button onClick={() => startMining()} disabled={isMining || !searchSector} className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-8 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-indigo-600/20">
-                                            {isMining ? <i data-lucide="loader-2" className="w-5 h-5 animate-spin"></i> : <i data-lucide="zap" className="w-5 h-5"></i>}
-                                            <span>{isMining ? "Rastreando..." : "Explorar"}</span>
+                                        <input type="text" value={searchSector} onChange={e=>setSearchSector(e.target.value)} placeholder="Setor (TI, Agro, Logística...)" className="flex-1 bg-[#080a0f] border border-white/10 rounded-2xl px-5 py-4 text-white outline-none focus:border-indigo-500" />
+                                        <button onClick={()=>startMining()} disabled={isMining||!searchSector} className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-8 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg transition-all active:scale-95">
+                                            {isMining ? <i data-lucide="loader-2" className="w-5 h-5 animate-spin"></i> : <i data-lucide="zap" className="w-5 h-5"></i>} <span>Explorar</span>
                                         </button>
                                     </div>
                                 </section>
 
-                                {/* Radar Grid */}
-                                <div className="space-y-4">
-                                    <h3 className="font-bold text-sm md:text-base flex items-center gap-2 text-slate-200 px-2">
-                                        <i data-lucide="briefcase" className="w-4 h-4 text-indigo-500"></i> Radar Ativo
-                                    </h3>
-                                    
-                                    <div className="grid gap-4">
-                                        {leads.map(lead => (
-                                            <div key={lead.id} className="bg-[#0d1117] border border-white/5 rounded-3xl p-5 md:p-6 hover:border-indigo-500/30 transition-all group shadow-sm">
-                                                <div className="flex flex-col xl:flex-row justify-between items-start gap-6">
-                                                    <div className="flex-1 w-full">
-                                                        <div className="flex items-center gap-3 mb-2">
-                                                            <h4 className="text-base md:text-lg font-bold text-white group-hover:text-indigo-400 transition-colors">{lead.empresa}</h4>
-                                                            <span className={`text-[9px] px-2 py-0.5 rounded border font-black uppercase ${lead.status === 'Enriquecido' ? 'border-indigo-500/30 text-indigo-400 bg-indigo-500/5' : 'border-white/10 text-slate-500'}`}>{lead.status}</span>
-                                                        </div>
-                                                        <p className="text-[10px] text-slate-500 font-mono tracking-tighter uppercase mb-4">{lead.cnae} • {lead.faturamento}</p>
-
-                                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 p-4 bg-white/[0.02] rounded-2xl border border-white/5">
-                                                            <div className="space-y-1">
-                                                                <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest opacity-60">Decisor</p>
-                                                                <p className="text-sm font-bold text-slate-200">{lead.decisor || "Não validado"}</p>
-                                                                {lead.contato && <p className="text-[10px] text-indigo-400 font-medium">{lead.contato}</p>}
-                                                            </div>
-                                                            <div className="hidden sm:block">
-                                                                <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest opacity-60">Score Match</p>
-                                                                <div className="flex items-center gap-3">
-                                                                    <span className="text-sm font-mono font-bold text-white">{lead.score}%</span>
-                                                                    <div className="h-1.5 flex-1 bg-white/10 rounded-full overflow-hidden max-w-[80px]">
-                                                                        <div className="h-full bg-indigo-500" style={{ width: `${lead.score}%` }}></div>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-
-                                                        {lead.gancho && (
-                                                            <div className="mt-4 flex gap-3 items-start bg-indigo-500/[0.03] p-4 rounded-2xl border border-indigo-500/10 italic text-xs md:text-sm text-slate-400">
-                                                                <i data-lucide="bot" className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5"></i>
-                                                                "{lead.gancho}"
-                                                            </div>
-                                                        )}
+                                <div className="grid gap-4">
+                                    {loading ? <div className="py-20 text-center opacity-30 italic">Sincronizando...</div> : leads.map(l => (
+                                        <div key={l.id} className="bg-[#0d1117] border border-white/5 rounded-3xl p-5 md:p-6 hover:border-indigo-500/30 transition-all shadow-sm">
+                                            <div className="flex flex-col xl:flex-row justify-between items-start gap-6">
+                                                <div className="flex-1 w-full">
+                                                    <div className="flex items-center gap-3 mb-2"><h4 className="text-lg font-bold text-white">{l.empresa}</h4><span className={`text-[9px] px-2 py-0.5 rounded border font-black uppercase ${l.status==='Enriquecido'?'border-indigo-500/30 text-indigo-400 bg-indigo-500/5':'border-white/10 text-slate-500'}`}>{l.status}</span></div>
+                                                    <p className="text-[10px] text-slate-500 font-mono tracking-tighter uppercase mb-4">{l.cnae} • <span className="text-indigo-400 font-bold">{l.faturamento}</span></p>
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 p-4 bg-white/[0.02] rounded-2xl border border-white/5 text-sm">
+                                                        <div><p className="text-[9px] uppercase font-black opacity-60">Decisor</p><p className="font-bold text-slate-200">{l.decisor || "Pendente"}</p>
+                                                            {l.contato && <p className="text-indigo-400 text-[10px] mt-1">{l.contato}</p>}</div>
+                                                        <div className="hidden sm:block"><p className="text-[9px] uppercase font-black opacity-60">Match Score</p><div className="flex items-center gap-2"><span className="font-mono text-white">{l.score}%</span><div className="h-1.5 flex-1 bg-white/10 rounded-full overflow-hidden max-w-[80px]"><div className="h-full bg-indigo-500 shadow-[0_0_8px_indigo]" style={{width:`${l.score}%`}}></div></div></div></div>
                                                     </div>
-
-                                                    <div className="flex flex-row xl:flex-col gap-2 w-full xl:w-40">
-                                                        {!lead.decisor ? (
-                                                            <button onClick={() => validateLead(lead.id, lead.empresa)} disabled={isProcessing} className="flex-1 bg-white/5 hover:bg-indigo-500 text-white p-3 rounded-xl flex items-center justify-center gap-2 font-bold text-xs border border-white/10 transition-all active:scale-95">
-                                                                {isProcessing ? <i data-lucide="loader-2" className="w-4 h-4 animate-spin"></i> : <i data-lucide="shield-check" className="w-4 h-4"></i>}
-                                                                <span>Validar</span>
-                                                            </button>
-                                                        ) : (
-                                                            <button onClick={() => { setSelectedLead(lead); setShowSendModal(true); }} className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white p-3 rounded-xl flex items-center justify-center gap-2 font-bold text-xs shadow-lg active:scale-95">
-                                                                <i data-lucide="share-2" className="w-4 h-4"></i> <span>Enviar</span>
-                                                            </button>
-                                                        )}
-                                                        <button onClick={() => deleteLead(lead.id)} className="bg-red-600/5 hover:bg-red-600/20 text-red-500/50 p-3 rounded-xl transition-all"><i data-lucide="trash-2" className="w-4 h-4"></i></button>
-                                                    </div>
+                                                    {l.gancho && <div className="mt-4 flex gap-3 bg-indigo-500/[0.03] p-4 rounded-2xl border border-indigo-500/10 italic text-xs text-slate-400"><i data-lucide="bot" className="w-4 h-4 text-indigo-500 shrink-0"></i>"{l.gancho}"</div>}
+                                                </div>
+                                                <div className="flex flex-row xl:flex-col gap-2 w-full xl:w-40 mt-4 xl:mt-0">
+                                                    {!l.decisor ? <button onClick={()=>validate(l.id, l.empresa)} disabled={isProcessing} className="flex-1 bg-white/5 hover:bg-indigo-500 text-white p-3 rounded-xl flex items-center justify-center gap-2 font-bold text-xs border border-white/10 transition-all active:scale-95">{isProcessing?<i data-lucide="loader-2" className="w-4 h-4 animate-spin"></i>:<i data-lucide="shield-check" className="w-4 h-4"></i>}Validar</button>
+                                                    : <button onClick={()=>{setSelectedLead(l);setShowSendModal(true)}} className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white p-3 rounded-xl flex items-center justify-center gap-2 font-bold text-xs shadow-lg active:scale-95 transition-all"><i data-lucide="share-2" className="w-4 h-4"></i>Enviar</button>}
+                                                    <button onClick={()=>firebase.firestore().collection('artifacts').doc(aId).collection('public').doc('data').collection('leads').doc(l.id).delete()} className="bg-red-600/5 hover:bg-red-600/20 text-red-500/50 p-3 rounded-xl transition-all"><i data-lucide="trash-2" className="w-4 h-4"></i></button>
                                                 </div>
                                             </div>
-                                        ))}
-                                    </div>
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
                         )}
+                        {activeTab !== 'discovery' && <div className="py-40 text-center opacity-10 uppercase italic font-bold">Módulo em Construção</div>}
                     </main>
 
                     {/* MODAL SEND */}
                     {showSendModal && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
                             <div className="bg-[#11141b] border border-white/10 w-full max-w-sm rounded-3xl p-8 shadow-2xl animate-in zoom-in duration-300">
-                                <div className="flex justify-between items-center mb-6 text-white">
-                                    <h2 className="text-xl font-bold tracking-tight">Enviar para:</h2>
-                                    <button onClick={() => setShowSendModal(false)}><i data-lucide="x" className="w-5 h-5"></i></button>
-                                </div>
+                                <h2 className="text-xl font-bold text-white mb-6">Enviar para:</h2>
                                 <div className="space-y-3">
                                     {contacts.map((c, i) => (
-                                        <button key={i} onClick={() => sendWhatsApp(c.phone)} className="w-full bg-white/5 hover:bg-indigo-600 text-white p-4 rounded-2xl flex items-center justify-between group transition-all font-bold">
-                                            {c.name} <i data-lucide="chevron-right" className="w-4 h-4 group-hover:translate-x-1 transition-transform"></i>
-                                        </button>
+                                        <button key={i} onClick={()=>send(c.phone)} className="w-full bg-white/5 hover:bg-indigo-600 text-white p-4 rounded-2xl flex items-center justify-between font-bold group transition-all">{c.name}<i data-lucide="chevron-right" className="w-4 h-4 group-hover:translate-x-1 transition-all"></i></button>
                                     ))}
+                                    <button onClick={()=>setShowSendModal(false)} className="w-full text-slate-500 text-sm mt-4">Cancelar</button>
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* LUMINA BUBBLE */}
+                    {/* BOT */}
                     <div className="fixed bottom-24 md:bottom-10 right-6 z-40">
                         {aiBubble.show && (
-                            <div className="absolute bottom-full right-0 mb-4 w-72 animate-in slide-in-from-bottom-2">
-                                <div className="bg-[#0d1117] border border-indigo-500/30 p-5 rounded-2xl shadow-2xl relative">
-                                    <button onClick={() => setAiBubble({ ...aiBubble, show: false })} className="absolute top-3 right-3 text-slate-600 hover:text-white"><i data-lucide="x" className="w-3 h-3"></i></button>
-                                    <div className="flex items-center gap-2 mb-3 text-indigo-400 font-black text-[10px] uppercase tracking-widest"><i data-lucide="sparkles" className="w-3 h-3"></i> Lumina Insight</div>
-                                    <p className="text-xs text-white leading-relaxed mb-4">{aiBubble.text}</p>
-                                    {aiBubble.type === 'question' && (
-                                        <div className="flex gap-2">
-                                            <button onClick={() => { aiBubble.action(); setAiBubble({ ...aiBubble, show: false }); }} className="flex-1 bg-indigo-600 text-white text-[10px] py-2 rounded-lg font-bold">Sim, bora!</button>
-                                            <button onClick={() => setAiBubble({ ...aiBubble, show: false })} className="flex-1 bg-white/5 text-slate-400 text-[10px] py-2 rounded-lg font-bold">Agora não</button>
-                                        </div>
-                                    )}
-                                </div>
+                            <div className="absolute bottom-full right-0 mb-4 w-72 p-5 bg-[#0d1117] border border-indigo-500/30 rounded-2xl shadow-2xl animate-in slide-in-from-bottom-2">
+                                <div className="flex items-center gap-2 mb-3 text-indigo-400 font-black text-[10px] uppercase tracking-widest"><i data-lucide="sparkles" className="w-3 h-3"></i> Lumina Insight</div>
+                                <p className="text-xs text-white leading-relaxed mb-4">{aiBubble.text}</p>
+                                <div className="flex gap-2"><button onClick={()=>startMining('SaaS e Software')} className="flex-1 bg-indigo-600 text-white text-[10px] py-2 rounded-lg font-bold">Sim!</button><button onClick={()=>setAiBubble({show:false})} className="flex-1 bg-white/5 text-slate-400 text-[10px] py-2 rounded-lg font-bold">Não</button></div>
                             </div>
                         )}
-                        <button onClick={() => setAiBubble({ show: true, text: "Vi que o setor de Tecnologia está bombando. Quer que eu busque 10 empresas de SaaS agora?", type: 'question', action: () => startMining('Empresas de Tecnologia SaaS') })} className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-indigo-700 rounded-full flex items-center justify-center text-white shadow-xl active:scale-90 transition-all ring-4 ring-white/5">
-                            <i data-lucide="bot" className="w-7 h-7"></i>
-                        </button>
+                        <button onClick={()=>setAiBubble({show:true, text: "Setor de Tecnologia está com 80% de match no Safra hoje. Quer minerar empresas de Software?"})} className="w-14 h-14 bg-indigo-600 rounded-full flex items-center justify-center text-white shadow-xl active:scale-90 transition-all ring-4 ring-white/5"><i data-lucide="bot" className="w-7 h-7"></i></button>
                     </div>
                 </div>
             );
         };
 
-        // Initialize Lucide icons after each render
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        const RenderApp = () => {
-            root.render(<App />);
-            setTimeout(() => lucide.createIcons(), 100);
-        };
-        RenderApp();
+        const r = () => { root.render(<App />); setTimeout(() => { if (window.lucide) window.lucide.createIcons(); }, 500); };
+        r();
     </script>
 </body>
 </html>
